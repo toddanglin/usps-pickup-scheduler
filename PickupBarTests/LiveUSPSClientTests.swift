@@ -105,6 +105,18 @@ final class LiveUSPSClientTests: XCTestCase {
                               try await client.fetchToken(clientID: "k", clientSecret: "s"))
     }
 
+    func testFetchToken400InvalidGrantIsInvalidCredentials() async {
+        respond(400, #"{"error":"invalid_grant"}"#)
+        await assertUSPSError(.invalidCredentials,
+                              try await client.fetchToken(clientID: "k", clientSecret: "s"))
+    }
+
+    func testFetchTokenOther400FallsThroughToBadRequest() async {
+        respond(400, #"{"error":"invalid_request","error_description":"grant_type is missing"}"#)
+        await assertUSPSError(.badRequest(message: "USPS rejected the request.", details: []),
+                              try await client.fetchToken(clientID: "k", clientSecret: "s"))
+    }
+
     func testFetchTokenGarbageBodyIsDecodingError() async {
         respond(200, "not json at all")
         do {
@@ -149,6 +161,27 @@ final class LiveUSPSClientTests: XCTestCase {
         let items = try XCTUnwrap(captured.value).queryItems
         XCTAssertEqual(items["secondaryAddress"], "APT 2")
         XCTAssertEqual(items["ZIPPlus4"], "2520")
+    }
+
+    func testEligibilityPercentEncodesReservedCharacters() async throws {
+        let captured = CapturedRequest()
+        respond(200, Self.nestedEligibilityJSON) { captured.value = $0 }
+
+        let address = PostalAddress(streetAddress: "123 A+B St #4 & Co", secondaryAddress: nil,
+                                    city: "Saint Louis", state: "MO", ZIPCode: "63116",
+                                    ZIPPlus4: nil)
+        _ = try await client.checkEligibility(address, token: "tok")
+
+        let request = try XCTUnwrap(captured.value)
+        let url = try XCTUnwrap(request.url?.absoluteString)
+        XCTAssertTrue(url.contains("%2B"), url)
+        XCTAssertTrue(url.contains("%23"), url)
+        XCTAssertTrue(url.contains("%26"), url)
+        XCTAssertFalse(url.contains("+"), url)
+
+        let items = request.queryItems
+        XCTAssertEqual(items["streetAddress"], "123 A+B St #4 & Co")
+        XCTAssertEqual(items["city"], "Saint Louis")
     }
 
     func testEligibilityParsesNestedPickupAddressShape() async throws {
@@ -220,15 +253,23 @@ final class LiveUSPSClientTests: XCTestCase {
         XCTAssertEqual(contact[1]["phone"] as? String, "3145551212")
     }
 
-    func testScheduleBodyKeysAreSorted() async throws {
-        let captured = CapturedRequest()
-        respond(200, #"{"confirmationNumber":"X","pickupDate":"2026-09-21"}"#) { captured.value = $0 }
-        _ = try await client.schedulePickup(sampleRequest(), token: "tok")
+    func testScheduleTopLevelPickupDateWinsOverNestedEcho() async throws {
+        // `nextAvailablePickup` rolled the date forward: the nested object
+        // echoes what was requested, the top level says what was scheduled.
+        respond(200, #"""
+        {"confirmationNumber":"WTC987","pickupDate":"2026-09-22",
+         "carrierPickupRequest":{"confirmationNumber":"WTC987","pickupDate":"2026-09-21"}}
+        """#)
+        let confirmation = try await client.schedulePickup(sampleRequest(), token: "tok")
+        XCTAssertEqual(confirmation, PickupConfirmation(confirmationNumber: "WTC987",
+                                                        pickupDate: "2026-09-22"))
+    }
 
-        let body = try XCTUnwrap(try XCTUnwrap(captured.value).bodyData)
-        let text = String(decoding: body, as: UTF8.self)
-        XCTAssertLessThan(try XCTUnwrap(text.range(of: "\"estimatedWeight\"")).lowerBound,
-                          try XCTUnwrap(text.range(of: "\"pickupAddress\"")).lowerBound)
+    func testScheduleParsesNestedOnlyShape() async throws {
+        respond(200, #"{"carrierPickupRequest":{"confirmationNumber":"WTC555","pickupDate":"2026-09-21"}}"#)
+        let confirmation = try await client.schedulePickup(sampleRequest(), token: "tok")
+        XCTAssertEqual(confirmation, PickupConfirmation(confirmationNumber: "WTC555",
+                                                        pickupDate: "2026-09-21"))
     }
 
     func testSchedule403IsForbidden() async {

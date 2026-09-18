@@ -8,7 +8,6 @@ import Foundation
 final class LiveUSPSClient: USPSAPI {
     private let baseURL: URL
     private let session: URLSession
-    private let encoder: JSONEncoder
 
     private static let timeout: TimeInterval = 30
     private static let maxBodyCharacters = 2000
@@ -16,9 +15,14 @@ final class LiveUSPSClient: USPSAPI {
     init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
+    }
+
+    /// `JSONEncoder` is a reference type, so each call gets its own rather than
+    /// sharing one across concurrent callers of this `Sendable` client.
+    private static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        self.encoder = encoder
+        return encoder
     }
 
     // MARK: - Token
@@ -28,16 +32,18 @@ final class LiveUSPSClient: USPSAPI {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = try encoder.encode(TokenRequestBody(grantType: "client_credentials",
-                                                               clientID: clientID,
-                                                               clientSecret: clientSecret))
+        request.httpBody = try Self.makeEncoder().encode(TokenRequestBody(grantType: "client_credentials",
+                                                                          clientID: clientID,
+                                                                          clientSecret: clientSecret))
 
         let requestedAt = Date()
         let (status, data) = try await send(request)
         guard (200..<300).contains(status) else {
             // The token endpoint reports bad credentials as 401, or as a 400
-            // carrying `{"error":"invalid_client"}`.
-            if status == 400 || status == 401 { throw USPSError.invalidCredentials }
+            // carrying `{"error":"invalid_client"}`. Any other 400 is a
+            // malformed request, not a credential problem.
+            if status == 401 { throw USPSError.invalidCredentials }
+            if status == 400, Self.isCredentialRejection(data) { throw USPSError.invalidCredentials }
             throw mapStatus(status, data: data)
         }
 
@@ -66,6 +72,10 @@ final class LiveUSPSClient: USPSAPI {
             items.append(URLQueryItem(name: "ZIPPlus4", value: plus4))
         }
         components.queryItems = items
+        // `URLComponents` leaves `+` literal in a query, where USPS (like most
+        // servers) reads it as a space.
+        components.percentEncodedQuery = components.percentEncodedQuery?
+            .replacingOccurrences(of: "+", with: "%2B")
 
         var request = URLRequest(url: components.url!, timeoutInterval: Self.timeout)
         request.httpMethod = "GET"
@@ -99,7 +109,7 @@ final class LiveUSPSClient: USPSAPI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try encoder.encode(pickup)
+        request.httpBody = try Self.makeEncoder().encode(pickup)
 
         let (status, data) = try await send(request)
         guard (200..<300).contains(status) else { throw mapStatus(status, data: data) }
@@ -164,6 +174,14 @@ final class LiveUSPSClient: USPSAPI {
         }
     }
 
+    /// True when a 400 from the token endpoint carries an OAuth error code
+    /// that means the credentials themselves were rejected.
+    private static func isCredentialRejection(_ data: Data) -> Bool {
+        guard let body = try? JSONDecoder().decode(TokenErrorBody.self, from: data),
+              let code = body.error else { return false }
+        return ["invalid_client", "invalid_grant", "unauthorized_client"].contains(code)
+    }
+
     private static func trimmedBody(_ data: Data) -> String {
         let text = String(decoding: data, as: UTF8.self)
         guard text.count > maxBodyCharacters else { return text }
@@ -183,6 +201,12 @@ private struct TokenRequestBody: Encodable {
         case clientID = "client_id"
         case clientSecret = "client_secret"
     }
+}
+
+/// The token endpoint reports failures as `{"error": "invalid_client", ...}`,
+/// where `error` is a string rather than the object the pickup endpoints use.
+private struct TokenErrorBody: Decodable {
+    var error: String?
 }
 
 /// USPS documents `expires_in` and `issued_at` as numbers, but some responses
@@ -237,26 +261,39 @@ private struct EligibilityResponse: Decodable {
 }
 
 /// Schedule responses come back flat or nested under `carrierPickupRequest`.
+///
+/// The top level wins: when `nextAvailablePickup` rolls the date forward, the
+/// nested `carrierPickupRequest` echoes the date that was *requested* while the
+/// top level carries the date USPS actually *scheduled*. The nested object is
+/// only consulted for keys the top level does not have.
 private struct ConfirmationResponse: Decodable {
     var confirmation: PickupConfirmation
 
     private enum CodingKeys: String, CodingKey {
+        case confirmationNumber
+        case pickupDate
         case carrierPickupRequest
     }
 
     init(from decoder: Decoder) throws {
-        if let container = try? decoder.container(keyedBy: CodingKeys.self),
-           let nested = try? container.decode(PickupConfirmation.self, forKey: .carrierPickupRequest) {
-            confirmation = nested
-            return
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let nested = try? container.decode(PickupConfirmation.self, forKey: .carrierPickupRequest)
+        let number = (try? container.decode(String.self, forKey: .confirmationNumber))
+            ?? nested?.confirmationNumber
+        let date = (try? container.decode(String.self, forKey: .pickupDate)) ?? nested?.pickupDate
+
+        guard let number, let date else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: container.codingPath,
+                                      debugDescription: "No confirmationNumber/pickupDate at the top level or under carrierPickupRequest."))
         }
-        confirmation = try PickupConfirmation(from: decoder)
+        confirmation = PickupConfirmation(confirmationNumber: number, pickupDate: date)
     }
 }
 
 private extension String {
     var nonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : self
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
