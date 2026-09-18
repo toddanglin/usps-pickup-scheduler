@@ -23,6 +23,7 @@ repo (MIT).
   `https://apis-tem.usps.com`):
   - `POST /oauth2/v3/token` — JSON body `{grant_type, client_id, client_secret}`
   - `GET  /pickup/v3/carrier-pickup/eligibility?streetAddress=&city=&state=&ZIPCode=`
+    (`secondaryAddress` and `ZIPPlus4` are also sent when the saved address has them)
   - `POST /pickup/v3/carrier-pickup` — schedule
 - Pickups: Mon–Sat, no postal holidays, same-day allowed until 2:00 AM Central.
   Request flag `nextAvailablePickup: true` makes USPS roll forward if the date
@@ -199,6 +200,13 @@ User-facing copy:
 - badRequest: "USPS couldn't schedule this pickup" / `message` / details listed.
 - addressNotEligible: "This address isn't eligible for pickup" / message / "Double-check the address, or schedule at usps.com to see alternatives."
 - unexpected: "Something unexpected happened" / "USPS returned status N." / "Copy the details and open an issue if this keeps happening."
+  `unexpected(status: 0, …)` is reserved for transport-level failures (no HTTP response), where `body` carries the underlying description and is used as the message verbatim.
+- decoding: "Something unexpected happened" / "PickupBar couldn't read the USPS response." / "The pickup may still have been scheduled. Check usps.com before scheduling again."
+
+Retryable: offline, rateLimited, serviceUnavailable, unexpected. **Not** retryable:
+invalidCredentials, forbidden, badRequest, addressNotEligible, and `decoding` — a decode
+failure only happens after a 2xx, so the pickup was probably created and retrying risks
+scheduling a second one.
 
 ### 4.4 Services
 
@@ -243,7 +251,8 @@ struct PickupDateCalculator {
   // Skip Sundays and USPS holidays (observed): New Year's Day, MLK Day (3rd Mon Jan), Presidents' Day (3rd Mon Feb),
   // Memorial Day (last Mon May), Juneteenth (Jun 19), Independence Day (Jul 4), Labor Day (1st Mon Sep),
   // Columbus Day (2nd Mon Oct), Veterans Day (Nov 11), Thanksgiving (4th Thu Nov), Christmas (Dec 25).
-  // Observed: Sat holiday → Fri; Sun holiday → Mon.
+  // Observed: Sat holiday → Fri; Sun holiday → Mon. A fixed-date holiday that falls on a weekend
+  // blocks BOTH days: the actual date and the observed weekday (USPS does not operate on either).
   static func apiDateString(_ date: Date) -> String  // yyyy-MM-dd in America/Chicago
 }
 ```
