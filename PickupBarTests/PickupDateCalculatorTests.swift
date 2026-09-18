@@ -59,4 +59,9 @@ final class PickupDateCalculatorTests: XCTestCase {
         // Veterans Day
         XCTAssertTrue(PickupDateCalculator.isHoliday(date(2026,11,11)))
     }
+
+    func testNewYearsOnSaturdayObservedPriorFriday() {
+        // 2028-01-01 is a Saturday → observed Fri 2027-12-31. From Thu 2027-12-30 noon → Mon 2028-01-03.
+        XCTAssertEqual(days(PickupDateCalculator.availableDates(from: date(2027,12,30), count: 1)), ["2028-01-03"])
+    }
 }

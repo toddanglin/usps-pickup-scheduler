@@ -92,7 +92,9 @@ enum PickupDateCalculator {
     static func isHoliday(_ date: Date) -> Bool {
         let year = calendar.component(.year, from: date)
         let normalizedDate = calendar.startOfDay(for: date)
-        return holidays(forYear: year).contains { calendar.isDate($0, inSameDayAs: normalizedDate) }
+        // Also check next year: New Year's Day on a Saturday is observed on Dec 31 of the prior year.
+        return (holidays(forYear: year) + holidays(forYear: year + 1))
+            .contains { calendar.isDate($0, inSameDayAs: normalizedDate) }
     }
 
     // MARK: - Holiday computation
