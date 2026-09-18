@@ -11,7 +11,7 @@ import Foundation
 enum PickupDateCalculator {
     static let timeZone = TimeZone(identifier: "America/Chicago")!
 
-    private static var calendar: Calendar = {
+    private static let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         calendar.locale = Locale(identifier: "en_US_POSIX")
@@ -99,12 +99,7 @@ enum PickupDateCalculator {
 
     // MARK: - Holiday computation
 
-    private static var holidayCache: [Int: [Date]] = [:]
-
     private static func holidays(forYear year: Int) -> [Date] {
-        if let cached = holidayCache[year] {
-            return cached
-        }
         var dates: [Date] = []
 
         // Fixed-date holidays (with observed weekend rules). Both the actual calendar date
@@ -125,7 +120,6 @@ enum PickupDateCalculator {
         dates.append(nthWeekday(weekday: 2, n: 2, month: 10, year: year))  // Columbus Day: 2nd Mon Oct
         dates.append(nthWeekday(weekday: 5, n: 4, month: 11, year: year))  // Thanksgiving: 4th Thu Nov
 
-        holidayCache[year] = dates
         return dates
     }
 

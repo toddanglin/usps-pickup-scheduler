@@ -12,7 +12,13 @@ enum BaseURL {
                         environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let raw = environment["PICKUPBAR_BASE_URL"] {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty, let url = URL(string: trimmed), url.scheme != nil {
+            // Anything that is not an absolute http(s) URL with a host is
+            // ignored: "localhost:8787", for example, parses as a URL whose
+            // scheme is "localhost".
+            if !trimmed.isEmpty,
+               let url = URL(string: trimmed),
+               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+               let host = url.host, !host.isEmpty {
                 return url
             }
         }

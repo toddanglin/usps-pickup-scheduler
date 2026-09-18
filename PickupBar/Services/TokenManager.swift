@@ -8,11 +8,18 @@ actor TokenManager {
     /// Refresh when the cached token has less than this long to live.
     private static let refreshMargin: TimeInterval = 60
 
+    /// A cached token plus the consumer key it was issued for, so a credential
+    /// swap cannot be served a token belonging to the previous app.
+    private struct CachedToken {
+        var token: OAuthToken
+        var credentialID: String
+    }
+
     private var api: USPSAPI
     private let credentials: @Sendable () -> (id: String, secret: String)?
     private let now: @Sendable () -> Date
 
-    private var cached: OAuthToken?
+    private var cached: CachedToken?
     private var inFlight: Task<OAuthToken, Error>?
 
     init(api: USPSAPI,
@@ -24,16 +31,22 @@ actor TokenManager {
     }
 
     /// Returns a usable access token, fetching a new one when the cache is
-    /// empty or about to expire.
+    /// empty, stale (issued for different credentials), or about to expire.
     func validToken() async throws -> String {
-        if let cached, cached.expiresAt.timeIntervalSince(now()) > Self.refreshMargin {
-            return cached.accessToken
+        // Credentials are read on every call: they can be replaced or removed
+        // while the app is running.
+        guard let credentials = credentials() else { throw USPSError.invalidCredentials }
+
+        if let cached, cached.credentialID != credentials.id {
+            self.cached = nil
+            inFlight = nil
+        }
+        if let cached, cached.token.expiresAt.timeIntervalSince(now()) > Self.refreshMargin {
+            return cached.token.accessToken
         }
         if let inFlight {
             return try await inFlight.value.accessToken
         }
-
-        guard let credentials = credentials() else { throw USPSError.invalidCredentials }
 
         let api = self.api
         let task = Task<OAuthToken, Error> {
@@ -43,10 +56,15 @@ actor TokenManager {
 
         do {
             let token = try await task.value
-            finish(task, with: token)
+            finish(task, with: CachedToken(token: token, credentialID: credentials.id))
             return token.accessToken
         } catch {
+            // A failed refresh only invalidates the attempt, not the token we
+            // already hold: if it has not expired yet, it is still usable.
             finish(task, with: nil)
+            if let cached, cached.token.expiresAt > now() {
+                return cached.token.accessToken
+            }
             throw error
         }
     }
@@ -66,10 +84,11 @@ actor TokenManager {
 
     /// Clears the in-flight task, but only when it is still the current one —
     /// `invalidate()` or `replaceAPI(_:)` may have superseded it while the
-    /// fetch was running.
-    private func finish(_ task: Task<OAuthToken, Error>, with token: OAuthToken?) {
+    /// fetch was running. A non-nil `token` also replaces the cache; `nil`
+    /// leaves whatever is cached in place.
+    private func finish(_ task: Task<OAuthToken, Error>, with token: CachedToken?) {
         guard inFlight == task else { return }
         inFlight = nil
-        cached = token
+        if let token { cached = token }
     }
 }

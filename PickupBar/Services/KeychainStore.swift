@@ -88,7 +88,10 @@ struct KeychainStore: KeychainStoring {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
+            // The sandboxed app uses the data-protection keychain, where the
+            // accessibility attribute is honored.
+            kSecUseDataProtectionKeychain as String: true
         ]
     }
 }

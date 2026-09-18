@@ -4,6 +4,18 @@ import XCTest
 final class TokenManagerTests: XCTestCase {
     private let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
 
+    /// Mutable clock and credentials, so tests can move time forward or swap
+    /// the stored consumer key between calls.
+    private final class Box<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _value: Value
+        init(_ value: Value) { _value = value }
+        var value: Value {
+            get { lock.withLock { _value } }
+            set { lock.withLock { _value = newValue } }
+        }
+    }
+
     private func makeManager(api: FakeUSPSAPI,
                              credentials: (id: String, secret: String)? = ("key", "secret"),
                              now: Date? = nil) -> TokenManager {
@@ -108,6 +120,78 @@ final class TokenManagerTests: XCTestCase {
         let recovered = try? await manager.validToken()
         XCTAssertEqual(recovered, "tok-recovered")
         XCTAssertEqual(api.tokenCallCount, 2)
+    }
+
+    func testChangedCredentialIDDiscardsCachedToken() async throws {
+        let api = FakeUSPSAPI()
+        api.setToken("tok-old", expiresIn: 3600, from: fixedNow)
+        let credentials = Box<(id: String, secret: String)?>(("old-key", "old-secret"))
+        let then = fixedNow
+        let manager = TokenManager(api: api, credentials: { credentials.value }, now: { then })
+
+        let first = try await manager.validToken()
+        XCTAssertEqual(first, "tok-old")
+        XCTAssertEqual(api.tokenCallCount, 1)
+
+        credentials.value = ("new-key", "new-secret")
+        api.setToken("tok-new", expiresIn: 3600, from: fixedNow)
+
+        let second = try await manager.validToken()
+        XCTAssertEqual(second, "tok-new")
+        XCTAssertEqual(api.tokenCallCount, 2)
+        XCTAssertEqual(api.lastCredentials?.id, "new-key")
+    }
+
+    func testCredentialsRemovedWhileCachedThrowsInvalidCredentials() async throws {
+        let api = FakeUSPSAPI()
+        api.setToken("tok-1", expiresIn: 3600, from: fixedNow)
+        let credentials = Box<(id: String, secret: String)?>(("key", "secret"))
+        let then = fixedNow
+        let manager = TokenManager(api: api, credentials: { credentials.value }, now: { then })
+
+        _ = try await manager.validToken()
+        credentials.value = nil
+
+        do {
+            _ = try await manager.validToken()
+            XCTFail("expected invalidCredentials")
+        } catch let error as USPSError {
+            XCTAssertEqual(error, .invalidCredentials)
+        } catch {
+            XCTFail("expected USPSError, got \(error)")
+        }
+        XCTAssertEqual(api.tokenCallCount, 1)
+    }
+
+    func testFailedRefreshKeepsStillValidCachedToken() async throws {
+        let api = FakeUSPSAPI()
+        api.setToken("tok-1", expiresIn: 300, from: fixedNow)
+        let clock = Box(fixedNow)
+        let manager = TokenManager(api: api, credentials: { ("key", "secret") },
+                                   now: { clock.value })
+
+        let first = try await manager.validToken()
+        XCTAssertEqual(first, "tok-1")
+        XCTAssertEqual(api.tokenCallCount, 1)
+
+        // Inside the 60 s refresh margin, but the token has not expired.
+        clock.value = fixedNow.addingTimeInterval(270)
+        api.tokenResult = .failure(USPSError.offline)
+
+        let afterFailedRefresh = try await manager.validToken()
+        XCTAssertEqual(afterFailedRefresh, "tok-1")
+        XCTAssertEqual(api.tokenCallCount, 2)
+
+        // Once it really expires, the refresh failure surfaces.
+        clock.value = fixedNow.addingTimeInterval(400)
+        do {
+            _ = try await manager.validToken()
+            XCTFail("expected offline")
+        } catch let error as USPSError {
+            XCTAssertEqual(error, .offline)
+        } catch {
+            XCTFail("expected USPSError, got \(error)")
+        }
     }
 
     func testReplaceAPISwapsClientAndDropsCache() async throws {
