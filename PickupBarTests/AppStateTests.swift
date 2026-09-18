@@ -281,6 +281,53 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(notifier.count, 2)
     }
 
+    // MARK: - 10b. 401 mid-session
+
+    func testScheduleRetriesOnceWithAFreshTokenAfter401() async {
+        // The token was accepted when issued but rejected by the pickup call.
+        fake.scheduleResults = [.failure(USPSError.invalidCredentials)]
+        let state = makeState(credentials: true, address: true)
+        fillDraft(state)
+        await state.schedule()
+
+        guard case .confirmed(let confirmation) = state.flow else {
+            return XCTFail("expected confirmed, got \(state.flow)")
+        }
+        XCTAssertEqual(confirmation.confirmationNumber, "ABC123")
+        XCTAssertEqual(fake.scheduleCallCount, 2)
+        XCTAssertEqual(fake.tokenCallCount, 2, "the retry should use a freshly fetched token")
+        XCTAssertFalse(state.needsAttention)
+        XCTAssertEqual(notifier.count, 0)
+        XCTAssertEqual(state.credentialsStatus, .unknown)
+    }
+
+    func testScheduleTwice401NeedsCredentials() async {
+        fake.scheduleResults = [.failure(USPSError.invalidCredentials),
+                                .failure(USPSError.invalidCredentials)]
+        let state = makeState(credentials: true, address: true)
+        fillDraft(state)
+        await state.schedule()
+
+        XCTAssertEqual(state.flow, .needsCredentials)
+        XCTAssertEqual(fake.scheduleCallCount, 2)
+        XCTAssertEqual(state.credentialsStatus, .invalid)
+        XCTAssertTrue(state.needsAttention)
+        XCTAssertEqual(notifier.count, 1)
+    }
+
+    func testValidateAndSaveAddressRetriesOnceAfter401() async throws {
+        fake.eligibilityResults = [.failure(USPSError.invalidCredentials)]
+        let state = makeState(credentials: true)
+
+        let standardized = try await state.validateAndSaveAddress(contact: sampleContact,
+                                                                  address: sampleAddress)
+        XCTAssertEqual(standardized, FakeUSPSAPI.defaultAddress)
+        XCTAssertEqual(fake.eligibilityCallCount, 2)
+        XCTAssertEqual(fake.tokenCallCount, 2)
+        XCTAssertFalse(state.needsAttention)
+        XCTAssertEqual(notifier.count, 0)
+    }
+
     // MARK: - 11. non-retryable failure
 
     func testScheduleForbidden() async {

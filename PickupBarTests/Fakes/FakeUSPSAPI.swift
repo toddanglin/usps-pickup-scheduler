@@ -10,8 +10,10 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
     private var _tokenResult: Result<OAuthToken, Error> =
         .success(OAuthToken(accessToken: "fake-token", expiresAt: Date().addingTimeInterval(28_799)))
     private var _eligibilityResult: Result<PostalAddress, Error> = .success(FakeUSPSAPI.defaultAddress)
+    private var _eligibilityResults: [Result<PostalAddress, Error>] = []
     private var _scheduleResult: Result<PickupConfirmation, Error> =
         .success(PickupConfirmation(confirmationNumber: "ABC123", pickupDate: "2026-09-21"))
+    private var _scheduleResults: [Result<PickupConfirmation, Error>] = []
 
     private var _tokenCallCount = 0
     private var _eligibilityCallCount = 0
@@ -41,6 +43,20 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
     var scheduleResult: Result<PickupConfirmation, Error> {
         get { lock.withLock { _scheduleResult } }
         set { lock.withLock { _scheduleResult = newValue } }
+    }
+
+    /// Results handed out by `checkEligibility`, in order, before falling back
+    /// to `eligibilityResult`.
+    var eligibilityResults: [Result<PostalAddress, Error>] {
+        get { lock.withLock { _eligibilityResults } }
+        set { lock.withLock { _eligibilityResults = newValue } }
+    }
+
+    /// Results handed out by `schedulePickup`, in order, before falling back
+    /// to `scheduleResult`. Use it to script a failure followed by a success.
+    var scheduleResults: [Result<PickupConfirmation, Error>] {
+        get { lock.withLock { _scheduleResults } }
+        set { lock.withLock { _scheduleResults = newValue } }
     }
 
     /// Artificial delay applied to `fetchToken`, useful for coalescing tests.
@@ -83,7 +99,7 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
             _eligibilityCallCount += 1
             _lastEligibilityAddress = address
             _lastToken = token
-            return _eligibilityResult
+            return _eligibilityResults.isEmpty ? _eligibilityResult : _eligibilityResults.removeFirst()
         }
         return try result.get()
     }
@@ -93,7 +109,7 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
             _scheduleCallCount += 1
             _lastScheduleRequest = request
             _lastToken = token
-            return _scheduleResult
+            return _scheduleResults.isEmpty ? _scheduleResult : _scheduleResults.removeFirst()
         }
         return try result.get()
     }

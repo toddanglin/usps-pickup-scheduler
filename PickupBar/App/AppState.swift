@@ -122,8 +122,9 @@ final class AppState: ObservableObject {
     func validateAndSaveAddress(contact: PickupContact,
                                 address: PostalAddress) async throws -> PostalAddress {
         do {
-            let token = try await tokens.validToken()
-            let standardized = try await api.checkEligibility(address, token: token)
+            let standardized = try await withFreshTokenRetry { token in
+                try await self.api.checkEligibility(address, token: token)
+            }
             settings.address = standardized
             settings.contact = contact
             if flow == .needsAddress { flow = .form }
@@ -145,9 +146,10 @@ final class AppState: ObservableObject {
 
         flow = .scheduling
         do {
-            let token = try await tokens.validToken()
-            let confirmation = try await api.schedulePickup(
-                draft.request(address: address, contact: contact), token: token)
+            let request = draft.request(address: address, contact: contact)
+            let confirmation = try await withFreshTokenRetry { token in
+                try await self.api.schedulePickup(request, token: token)
+            }
             settings.lastConfirmation = confirmation
             flow = .confirmed(confirmation)
         } catch let error as USPSError {
@@ -183,6 +185,22 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Private
+
+    /// Runs `operation` with a valid token, and retries it once with a freshly
+    /// fetched token when USPS rejects the one it was given. A token can be
+    /// revoked or expire early mid-session, and that 401 comes from the API
+    /// call rather than from the token fetch, so it is worth one clean retry
+    /// before declaring the credentials bad.
+    private func withFreshTokenRetry<T>(_ operation: (String) async throws -> T) async throws -> T {
+        let token = try await tokens.validToken()
+        do {
+            return try await operation(token)
+        } catch USPSError.invalidCredentials {
+            await tokens.invalidate()
+            let fresh = try await tokens.validToken()
+            return try await operation(fresh)
+        }
+    }
 
     private func handleInvalidCredentials() {
         credentialsStatus = .invalid
