@@ -63,6 +63,41 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertNil(store.contact)
     }
 
+    func testPartialSnapshotKeepsDefaultsForMissingKeys() {
+        // A snapshot written by another version of the app: one known key only.
+        defaults.set(Data(#"{"defaultWeight": 2}"#.utf8), forKey: "settings.v1")
+
+        let store = SettingsStore(defaults: defaults)
+
+        XCTAssertEqual(store.defaultWeight, 2)
+        XCTAssertEqual(store.defaultLocation, .frontDoor)
+        XCTAssertEqual(store.defaultInstructions, "")
+        XCTAssertFalse(store.dogPresent)
+        XCTAssertFalse(store.useTestEnvironment)
+        XCTAssertNil(store.address)
+        XCTAssertNil(store.contact)
+        XCTAssertNil(store.lastConfirmation)
+    }
+
+    func testUnknownFieldDoesNotWipeSavedAddress() throws {
+        let store = SettingsStore(defaults: defaults)
+        store.address = PostalAddress(streetAddress: "123 Main St", secondaryAddress: nil,
+                                      city: "Springfield", state: "IL", ZIPCode: "62701",
+                                      ZIPPlus4: nil)
+        store.contact = PickupContact(firstName: "Todd", lastName: "Anglin", firm: nil,
+                                      phone: "5551234567", email: nil)
+
+        // Simulate a future version adding a field to the snapshot.
+        let data = try XCTUnwrap(defaults.data(forKey: "settings.v1"))
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        json["someFutureField"] = ["nested": true]
+        defaults.set(try JSONSerialization.data(withJSONObject: json), forKey: "settings.v1")
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.address, store.address)
+        XCTAssertEqual(reloaded.contact, store.contact)
+    }
+
     func testClearResets() {
         let store = SettingsStore(defaults: defaults)
         store.defaultLocation = .mailbox

@@ -67,6 +67,10 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Decoded key by key with the store's own defaults, so a snapshot written
+    /// by a different version of the app — missing a key, or carrying one this
+    /// version does not know — still restores everything it does understand
+    /// instead of wiping the user's saved address.
     private struct Snapshot: Codable {
         var contact: PickupContact?
         var address: PostalAddress?
@@ -76,5 +80,39 @@ final class SettingsStore: ObservableObject {
         var defaultWeight: Double
         var useTestEnvironment: Bool
         var lastConfirmation: PickupConfirmation?
+
+        init(contact: PickupContact?,
+             address: PostalAddress?,
+             defaultLocation: PackageLocation,
+             defaultInstructions: String,
+             dogPresent: Bool,
+             defaultWeight: Double,
+             useTestEnvironment: Bool,
+             lastConfirmation: PickupConfirmation?) {
+            self.contact = contact
+            self.address = address
+            self.defaultLocation = defaultLocation
+            self.defaultInstructions = defaultInstructions
+            self.dogPresent = dogPresent
+            self.defaultWeight = defaultWeight
+            self.useTestEnvironment = useTestEnvironment
+            self.lastConfirmation = lastConfirmation
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            contact = try container.decodeIfPresent(PickupContact.self, forKey: .contact)
+            address = try container.decodeIfPresent(PostalAddress.self, forKey: .address)
+            defaultLocation = try container.decodeIfPresent(PackageLocation.self,
+                                                            forKey: .defaultLocation) ?? .frontDoor
+            defaultInstructions = try container.decodeIfPresent(String.self,
+                                                                forKey: .defaultInstructions) ?? ""
+            dogPresent = try container.decodeIfPresent(Bool.self, forKey: .dogPresent) ?? false
+            defaultWeight = try container.decodeIfPresent(Double.self, forKey: .defaultWeight) ?? 1
+            useTestEnvironment = try container.decodeIfPresent(Bool.self,
+                                                               forKey: .useTestEnvironment) ?? false
+            lastConfirmation = try container.decodeIfPresent(PickupConfirmation.self,
+                                                             forKey: .lastConfirmation)
+        }
     }
 }

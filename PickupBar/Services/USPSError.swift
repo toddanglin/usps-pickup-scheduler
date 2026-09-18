@@ -77,17 +77,23 @@ extension USPSError {
             return details.isEmpty ? nil : details.joined(separator: "\n")
         case .addressNotEligible:
             return "Double-check the address, or schedule at usps.com to see alternatives."
-        case .unexpected, .decoding:
+        case .unexpected:
             return "Copy the details and open an issue if this keeps happening."
+        case .decoding:
+            // A decode failure follows a 2xx, so the pickup was most likely
+            // created even though we could not read the response.
+            return "The pickup may still have been scheduled. Check usps.com before scheduling again."
         }
     }
 
     /// Whether the failing operation is worth offering a "Try again" button for.
     var isRetryable: Bool {
         switch self {
-        case .offline, .rateLimited, .serviceUnavailable, .unexpected, .decoding:
+        case .offline, .rateLimited, .serviceUnavailable, .unexpected:
             return true
-        case .invalidCredentials, .forbidden, .badRequest, .addressNotEligible:
+        // `.decoding` is not retryable: it can only happen after a 2xx, so
+        // retrying risks scheduling a second pickup.
+        case .invalidCredentials, .forbidden, .badRequest, .addressNotEligible, .decoding:
             return false
         }
     }

@@ -39,6 +39,9 @@ final class USPSErrorTests: XCTestCase {
         let error = USPSError.decoding("keyNotFound")
         XCTAssertEqual(error.title, "Something unexpected happened")
         XCTAssertEqual(error.message, "PickupBar couldn't read the USPS response.")
+        XCTAssertEqual(error.hint,
+                       "The pickup may still have been scheduled. Check usps.com before scheduling again.")
+        XCTAssertFalse(error.isRetryable)
     }
 
     func testIsRetryableForAllCases() {
@@ -46,12 +49,13 @@ final class USPSErrorTests: XCTestCase {
         XCTAssertTrue(USPSError.rateLimited.isRetryable)
         XCTAssertTrue(USPSError.serviceUnavailable.isRetryable)
         XCTAssertTrue(USPSError.unexpected(status: 500, body: "boom").isRetryable)
-        XCTAssertTrue(USPSError.decoding("bad").isRetryable)
 
         XCTAssertFalse(USPSError.invalidCredentials.isRetryable)
         XCTAssertFalse(USPSError.forbidden.isRetryable)
         XCTAssertFalse(USPSError.badRequest(message: "m", details: []).isRetryable)
         XCTAssertFalse(USPSError.addressNotEligible(message: "m").isRetryable)
+        // A decode failure follows a 2xx, so retrying could double-schedule.
+        XCTAssertFalse(USPSError.decoding("bad").isRetryable)
     }
 
     func testTechnicalDetailsIncludeStatusAndBody() {
