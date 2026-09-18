@@ -1,0 +1,60 @@
+name: PickupBar
+options:
+  bundleIdPrefix: com.toddanglin
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  PickupBar:
+    type: application
+    platform: macOS
+    sources:
+      - path: PickupBar
+        excludes: ["Info.plist"]
+    info:
+      path: PickupBar/Info.plist
+      properties:
+        CFBundleDisplayName: PickupBar
+        CFBundleName: PickupBar
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: "© 2026 Todd Anglin. MIT License."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: PickupBar/PickupBar.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupBar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_STRICT_CONCURRENCY: minimal
+  PickupBarTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [PickupBarTests]
+    dependencies:
+      - target: PickupBar
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupBarTests
+schemes:
+  PickupBar:
+    build:
+      targets: { PickupBar: all, PickupBarTests: [test] }
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [PickupBarTests]
