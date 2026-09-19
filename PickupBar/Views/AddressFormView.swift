@@ -94,12 +94,18 @@ struct AddressFormView: View {
                 successBanner(standardized)
             }
 
-            PrimaryButton("Validate & Save", isBusy: isBusy, action: save)
-                .accessibilityIdentifier("address.validate")
-
             if let continueAction, standardized != nil, error == nil, problems.isEmpty {
+                // Once USPS has verified the address, Continue is the primary
+                // action; re-validating is still available but demoted.
                 PrimaryButton("Continue", action: continueAction)
                     .accessibilityIdentifier("address.continue")
+                Button("Validate again", action: save)
+                    .buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("address.validate")
+            } else {
+                PrimaryButton("Validate & Save", isBusy: isBusy, action: save)
+                    .accessibilityIdentifier("address.validate")
             }
         }
         .disabled(isBusy)

@@ -160,6 +160,18 @@ production — see `PickupBar/Services/BaseURL.swift`.
 The design spec and implementation plans for this project live in
 `docs/superpowers/specs` and `docs/superpowers/plans`.
 
+### UI test
+
+`make uitest` runs an XCUITest that opens the real menu bar popover, walks
+onboarding → address → form → confirmation → "schedule another" against the
+mock server, opens Settings, and saves a screenshot of every screen to
+`.build/uiscreens` (override with `UISCREENS=...`). It must be run from a normal
+terminal, not from a sandboxed shell, because macOS UI automation needs to
+attach to the app. The app is launched with `PICKUPBAR_UITEST=1`, which swaps
+in a throwaway defaults suite and credential store so your real settings are
+never touched. The first time you run it macOS may show a notification
+permission prompt for PickupBar; either answer is fine.
+
 ## Limitations / roadmap
 
 Not supported in v1:

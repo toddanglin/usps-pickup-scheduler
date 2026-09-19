@@ -15,6 +15,6 @@ struct SettingsView: View {
         }
         // A minimum rather than a fixed size: each tab's grouped Form
         // scrolls on its own, and a taller window simply shows more of it.
-        .frame(minWidth: 460, minHeight: 380)
+        .frame(minWidth: 460, idealWidth: 480, maxWidth: 640, minHeight: 380, idealHeight: 440)
     }
 }
