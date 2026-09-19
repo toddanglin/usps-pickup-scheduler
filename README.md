@@ -9,9 +9,9 @@ using your own USPS developer credentials — no browser, no re-login.
 
 ## Screenshots
 
-<!-- TODO: add screenshots -->
-
-Images go in `docs/images/`.
+| Onboarding | Schedule a pickup | Confirmation |
+|---|---|---|
+| ![Onboarding](docs/images/01-onboarding.png) | ![Pickup form](docs/images/03-form.png) | ![Confirmation](docs/images/05-confirmation.png) |
 
 ## Features
 
