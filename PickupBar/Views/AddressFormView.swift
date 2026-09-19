@@ -1,0 +1,206 @@
+import SwiftUI
+
+/// Contact + pickup address entry, shared by the first-run address screen and
+/// Settings › Address. Runs the USPS eligibility check on save and reports the
+/// standardized address inline.
+struct AddressFormView: View {
+    var onSaved: (() -> Void)?
+
+    @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var settings: SettingsStore
+
+    @State private var firstName = ""
+    @State private var lastName = ""
+    @State private var firm = ""
+    @State private var phone = ""
+    @State private var email = ""
+    @State private var street = ""
+    @State private var secondary = ""
+    @State private var city = ""
+    @State private var stateCode = ""
+    @State private var zip = ""
+
+    @State private var isBusy = false
+    @State private var problems: [String] = []
+    @State private var error: USPSError?
+    @State private var standardized: PostalAddress?
+    @State private var didPrefill = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Style.sectionSpacing) {
+            VStack(spacing: 6) {
+                FieldRow(label: "First name", text: $firstName)
+                FieldRow(label: "Last name", text: $lastName)
+                FieldRow(label: "Company", text: $firm, placeholder: "Optional")
+                FieldRow(label: "Phone", text: $phone, placeholder: "10 digits")
+                    .onSubmit { phone = Self.digits(phone) }
+                FieldRow(label: "Email", text: $email, placeholder: "Optional")
+            }
+
+            VStack(spacing: 6) {
+                FieldRow(label: "Street", text: $street)
+                FieldRow(label: "Apt/Suite", text: $secondary, placeholder: "Optional")
+                FieldRow(label: "City", text: $city)
+                HStack(spacing: 6) {
+                    Text("State")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 72, alignment: .trailing)
+                    TextField("TX", text: $stateCode)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 52)
+                        .onSubmit { stateCode = stateCode.uppercased() }
+                    Text("ZIP")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("78701", text: $zip)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            if !problems.isEmpty {
+                InlineError(title: "Check these fields",
+                            message: problems.joined(separator: "\n"))
+            }
+
+            if let error {
+                InlineError(title: error.title, message: error.message, hint: error.hint)
+            }
+
+            if let standardized, error == nil, problems.isEmpty {
+                successBanner(standardized)
+            }
+
+            PrimaryButton("Validate & Save", isBusy: isBusy, action: save)
+        }
+        .disabled(isBusy)
+        .onAppear(perform: prefill)
+    }
+
+    private func successBanner(_ address: PostalAddress) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Address verified by USPS")
+                    .font(.callout.weight(.medium))
+                Text(Self.oneLine(address))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: - Actions
+
+    private func prefill() {
+        guard !didPrefill else { return }
+        didPrefill = true
+        if let contact = settings.contact {
+            firstName = contact.firstName
+            lastName = contact.lastName
+            firm = contact.firm ?? ""
+            phone = contact.phone
+            email = contact.email ?? ""
+        }
+        if let address = settings.address {
+            street = address.streetAddress
+            secondary = address.secondaryAddress ?? ""
+            city = address.city
+            stateCode = address.state
+            zip = address.ZIPCode
+        }
+    }
+
+    private func save() {
+        // Normalize the fields that have a canonical form before validating,
+        // so the user never has to fix formatting by hand.
+        phone = Self.digits(phone)
+        stateCode = stateCode.uppercased().trimmingCharacters(in: .whitespaces)
+        zip = String(Self.digits(zip).prefix(5))
+
+        error = nil
+        standardized = nil
+        problems = validate()
+        guard problems.isEmpty else { return }
+
+        let contact = PickupContact(
+            firstName: firstName.trimmed,
+            lastName: lastName.trimmed,
+            firm: firm.trimmed.nilIfEmpty,
+            phone: phone,
+            email: email.trimmed.nilIfEmpty)
+        let address = PostalAddress(
+            streetAddress: street.trimmed,
+            secondaryAddress: secondary.trimmed.nilIfEmpty,
+            city: city.trimmed,
+            state: stateCode,
+            ZIPCode: zip,
+            ZIPPlus4: nil)
+
+        isBusy = true
+        Task {
+            do {
+                standardized = try await state.validateAndSaveAddress(contact: contact,
+                                                                      address: address)
+                onSaved?()
+            } catch let uspsError as USPSError {
+                error = uspsError
+            } catch {
+                self.error = .unexpected(status: 0, body: "\(error)")
+            }
+            isBusy = false
+        }
+    }
+
+    /// Human-readable list of everything still wrong with the form.
+    func validate() -> [String] {
+        var problems: [String] = []
+        if firstName.trimmed.isEmpty { problems.append("First name is required.") }
+        if lastName.trimmed.isEmpty { problems.append("Last name is required.") }
+        if Self.digits(phone).count != 10 { problems.append("Phone must be 10 digits.") }
+        if street.trimmed.isEmpty { problems.append("Street is required.") }
+        if city.trimmed.isEmpty { problems.append("City is required.") }
+        if stateCode.count != 2 { problems.append("State must be 2 letters.") }
+        if Self.digits(zip).count != 5 { problems.append("ZIP must be 5 digits.") }
+        return problems
+    }
+
+    // MARK: - Helpers
+
+    private static func digits(_ value: String) -> String {
+        value.filter(\.isNumber)
+    }
+
+    static func oneLine(_ address: PostalAddress) -> String {
+        var line = address.streetAddress
+        if let secondary = address.secondaryAddress, !secondary.isEmpty {
+            line += " \(secondary)"
+        }
+        return "\(line), \(address.city) \(address.state) \(address.ZIPCode)"
+    }
+}
+
+/// Label on the left, field on the right — compact enough for a 340 pt popover.
+private struct FieldRow: View {
+    let label: String
+    @Binding var text: String
+    var placeholder: String = ""
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .trailing)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+}
+
+private extension String {
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
