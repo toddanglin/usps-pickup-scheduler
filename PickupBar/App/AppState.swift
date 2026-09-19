@@ -9,6 +9,10 @@ final class AppState: ObservableObject {
     @Published var draft: PickupDraft
     @Published private(set) var needsAttention = false
     @Published private(set) var credentialsStatus: CredentialsStatus = .unknown
+    /// First few characters of the stored Consumer Key, for Settings › Account.
+    /// Kept even while the credentials are rejected, so the user can see *which*
+    /// key USPS refused. Nil only when nothing is stored.
+    @Published private(set) var credentialKeyPrefix: String?
 
     let settings: SettingsStore
 
@@ -64,11 +68,13 @@ final class AppState: ObservableObject {
         hasStarted = true
 
         let stored: (id: String, secret: String)? = try? keychain.loadCredentials()
-        guard stored != nil else {
+        guard let stored else {
+            credentialKeyPrefix = nil
             credentialsStatus = .missing
             flow = .needsCredentials
             return
         }
+        credentialKeyPrefix = Self.keyPrefix(stored.id)
 
         credentialsStatus = .checking
         flow = settings.isAddressConfigured ? .form : .needsAddress
@@ -98,8 +104,18 @@ final class AppState: ObservableObject {
     /// the onboarding screen can show an inline error.
     func saveCredentials(id: String, secret: String) async throws {
         _ = try await api.fetchToken(clientID: id, clientSecret: secret)
-        try keychain.saveCredentials(id: id, secret: secret)
+        do {
+            try keychain.saveCredentials(id: id, secret: secret)
+        } catch let error as KeychainError {
+            // The credentials themselves are fine — say so, rather than leaving
+            // onboarding showing a bare "Something unexpected happened".
+            throw USPSError.unexpected(
+                status: 0,
+                body: "Couldn't save to Keychain (\(Self.describe(error))). "
+                    + "Your credentials are valid, but macOS refused to store them.")
+        }
         await tokens.invalidate()
+        credentialKeyPrefix = Self.keyPrefix(id)
         credentialsStatus = .valid
         needsAttention = false
         didNotifyInvalidCredentials = false
@@ -110,6 +126,7 @@ final class AppState: ObservableObject {
     func removeCredentials() {
         try? keychain.deleteCredentials()
         Task { await tokens.invalidate() }
+        credentialKeyPrefix = nil
         credentialsStatus = .missing
         flow = .needsCredentials
     }
@@ -118,6 +135,10 @@ final class AppState: ObservableObject {
 
     /// Runs the eligibility check and stores the USPS-standardized address plus
     /// the contact. Returns the standardized address so the caller can show it.
+    ///
+    /// Deliberately leaves `flow` alone: during onboarding the address screen
+    /// has to stay up long enough to show the "verified by USPS" banner. The
+    /// user moves on with `finishAddressSetup()`.
     @discardableResult
     func validateAndSaveAddress(contact: PickupContact,
                                 address: PostalAddress) async throws -> PostalAddress {
@@ -127,12 +148,16 @@ final class AppState: ObservableObject {
             }
             settings.address = standardized
             settings.contact = contact
-            if flow == .needsAddress { flow = .form }
             return standardized
         } catch USPSError.invalidCredentials {
             handleInvalidCredentials()
             throw USPSError.invalidCredentials
         }
+    }
+
+    /// Onboarding's "Continue" after the address was verified.
+    func finishAddressSetup() {
+        if flow == .needsAddress { flow = .form }
     }
 
     // MARK: - Scheduling
@@ -176,15 +201,41 @@ final class AppState: ObservableObject {
 
     // MARK: - Environment
 
-    /// Rebuilds the USPS client against the currently configured base URL.
-    /// Called automatically when `settings.useTestEnvironment` changes.
+    /// Rebuilds the USPS client against the currently configured base URL and
+    /// re-checks the stored credentials against it. Production and TEM issue
+    /// different keys, so the status pill would otherwise keep claiming the old
+    /// environment's verdict. Called automatically when
+    /// `settings.useTestEnvironment` changes.
     func environmentChanged() async {
         let api = apiFactory(BaseURL.resolve(useTestEnvironment: settings.useTestEnvironment))
         self.api = api
         await tokens.replaceAPI(api)
+        await tokens.invalidate()
+
+        let stored: (id: String, secret: String)? = try? keychain.loadCredentials()
+        guard stored != nil else {
+            credentialsStatus = .missing
+            return
+        }
+        credentialsStatus = .checking
+        didNotifyInvalidCredentials = false
+        await verifyStoredCredentials()
     }
 
     // MARK: - Private
+
+    /// First four characters of a Consumer Key — enough to tell two keys apart
+    /// without putting the whole value on screen. Nil for an empty key.
+    private static func keyPrefix(_ id: String) -> String? {
+        id.isEmpty ? nil : String(id.prefix(4))
+    }
+
+    private static func describe(_ error: KeychainError) -> String {
+        switch error {
+        case .osStatus(let status): return "OSStatus \(status)"
+        case .badData: return "unreadable data"
+        }
+    }
 
     /// Runs `operation` with a valid token, and retries it once with a freshly
     /// fetched token when USPS rejects the one it was given. A token can be

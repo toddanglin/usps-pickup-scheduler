@@ -77,16 +77,12 @@ struct AccountSettingsTab: View {
     }
 
     /// First four characters, then dots — enough to tell two keys apart without
-    /// putting the whole secret-ish value on screen.
+    /// putting the whole secret-ish value on screen. Read from `AppState`
+    /// rather than the Keychain: `body` runs on every redraw, and a rejected
+    /// key should still be shown so the user knows which one USPS refused.
     private var maskedKey: String {
-        switch state.credentialsStatus {
-        case .missing: return "Not set"
-        default:
-            guard let id = try? KeychainStore().loadCredentials()?.id, !id.isEmpty else {
-                return "Not set"
-            }
-            return String(id.prefix(4)) + "••••••••"
-        }
+        guard let prefix = state.credentialKeyPrefix else { return "Not set" }
+        return prefix + "••••••••"
     }
 
     private func save() {

@@ -6,6 +6,14 @@ import Foundation
 final class InMemoryKeychain: KeychainStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: String] = [:]
+    private var _failWrites = false
+
+    /// When true, `saveCredentials` throws `errSecMissingEntitlement`, standing
+    /// in for a Keychain that refuses to store anything.
+    var failWrites: Bool {
+        get { lock.withLock { _failWrites } }
+        set { lock.withLock { _failWrites = newValue } }
+    }
 
     private let idAccount = "usps-consumer-key"
     private let secretAccount = "usps-consumer-secret"
@@ -22,6 +30,7 @@ final class InMemoryKeychain: KeychainStoring, @unchecked Sendable {
     func saveCredentials(id: String, secret: String) throws {
         lock.lock()
         defer { lock.unlock() }
+        if _failWrites { throw KeychainError.osStatus(-34018) }
         storage[idAccount] = id
         storage[secretAccount] = secret
     }

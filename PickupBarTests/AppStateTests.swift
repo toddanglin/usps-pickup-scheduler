@@ -196,7 +196,32 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(standardized, FakeUSPSAPI.defaultAddress)
         XCTAssertEqual(settings.address, FakeUSPSAPI.defaultAddress)
         XCTAssertEqual(settings.contact, sampleContact)
+        // The address screen stays up so it can show the verified banner.
+        XCTAssertEqual(state.flow, .needsAddress)
+    }
+
+    func testFinishAddressSetupMovesToTheForm() async throws {
+        let state = makeState(credentials: true)
+        state.start()
+        XCTAssertEqual(state.flow, .needsAddress)
+        _ = try await state.validateAndSaveAddress(contact: sampleContact, address: sampleAddress)
+        XCTAssertEqual(state.flow, .needsAddress)
+
+        state.finishAddressSetup()
         XCTAssertEqual(state.flow, .form)
+
+        // From anywhere else it is a no-op: re-verifying from Settings must not
+        // throw the user back onto the form mid-screen.
+        fillDraft(state)
+        await state.schedule()
+        guard case .confirmed = state.flow else {
+            return XCTFail("expected confirmed, got \(state.flow)")
+        }
+        state.finishAddressSetup()
+        guard case .confirmed = state.flow else {
+            XCTFail("finishAddressSetup should only act from .needsAddress")
+            return
+        }
     }
 
     func testValidateAndSaveAddressInvalidCredentials() async {
@@ -438,5 +463,64 @@ final class AppStateTests: XCTestCase {
         await waitFor { self.factoryURLs.urls.count == 2 }
         XCTAssertEqual(factoryURLs.urls, [BaseURL.production, BaseURL.test])
         withExtendedLifetime(state) {}
+    }
+
+    /// TEM credentials are different from production ones, so the status pill
+    /// has to stop claiming the old environment's verdict.
+    func testTogglingTestEnvironmentReverifiesCredentials() async {
+        let state = makeState(credentials: true, address: true)
+        state.start()
+        await waitFor { state.credentialsStatus == .valid }
+        XCTAssertEqual(fake.tokenCallCount, 1)
+
+        fake.tokenResult = .failure(USPSError.invalidCredentials)
+        settings.useTestEnvironment = true
+        await waitFor { state.credentialsStatus == .invalid }
+        XCTAssertEqual(state.credentialsStatus, .invalid)
+        XCTAssertGreaterThanOrEqual(fake.tokenCallCount, 2)
+        withExtendedLifetime(state) {}
+    }
+
+    // MARK: - 16. credential key prefix
+
+    func testCredentialKeyPrefixTracksTheStoredKey() async throws {
+        let state = makeState()
+        state.start()
+        XCTAssertNil(state.credentialKeyPrefix)
+
+        try await state.saveCredentials(id: "ABCDEFGH", secret: "xyz")
+        XCTAssertEqual(state.credentialKeyPrefix, "ABCD")
+
+        state.removeCredentials()
+        XCTAssertNil(state.credentialKeyPrefix)
+    }
+
+    func testCredentialKeyPrefixSurvivesRejection() async {
+        try? keychain.saveCredentials(id: "ABCDEFGH", secret: "xyz")
+        fake.tokenResult = .failure(USPSError.invalidCredentials)
+        let state = makeState(address: true)
+        state.start()
+        await waitFor { state.credentialsStatus == .invalid }
+        // The user needs to see *which* key USPS refused.
+        XCTAssertEqual(state.credentialKeyPrefix, "ABCD")
+    }
+
+    func testSaveCredentialsReportsAKeychainFailure() async {
+        let state = makeState()
+        state.start()
+        keychain.failWrites = true
+        do {
+            try await state.saveCredentials(id: "abc", secret: "xyz")
+            XCTFail("expected saveCredentials to throw")
+        } catch let error as USPSError {
+            guard case .unexpected(let status, let body) = error else {
+                return XCTFail("expected .unexpected, got \(error)")
+            }
+            XCTAssertEqual(status, 0)
+            XCTAssertTrue(body.contains("Keychain"), body)
+            XCTAssertTrue(body.contains("-34018"), body)
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
     }
 }

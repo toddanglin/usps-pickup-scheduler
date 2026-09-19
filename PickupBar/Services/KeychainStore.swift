@@ -84,14 +84,18 @@ struct KeychainStore: KeychainStoring {
         }
     }
 
+    /// Deliberately does *not* set `kSecUseDataProtectionKeychain`: the
+    /// data-protection keychain requires a keychain-access-group entitlement,
+    /// which an ad-hoc-signed sandboxed build (how PickupBar is built from
+    /// source) does not have, so `SecItemAdd` fails with
+    /// `errSecMissingEntitlement` (-34018). The default file-based keychain
+    /// works in every configuration; `kSecAttrAccessibleAfterFirstUnlock` on
+    /// add is simply ignored there.
     private func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            // The sandboxed app uses the data-protection keychain, where the
-            // accessibility attribute is honored.
-            kSecUseDataProtectionKeychain as String: true
+            kSecAttrAccount as String: account
         ]
     }
 }

@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Owns the long-lived objects so `AppState` and the `SettingsStore` it holds
-/// are the *same* instances the views see. A single `@StateObject` wrapper is
-/// simpler than trying to build interdependent state objects inline.
-@MainActor
-final class AppContainer: ObservableObject {
-    let state: AppState
+@main
+struct PickupBarApp: App {
+    /// Held directly rather than behind a container object: the `MenuBarExtra`
+    /// label reads `state.needsAttention`, and only a `@StateObject` on the
+    /// `App` itself makes the Scene re-render when that changes.
+    @StateObject private var state: AppState
 
     init() {
         // UI tests run the real app, so they need somewhere to write that is
@@ -30,32 +30,31 @@ final class AppContainer: ObservableObject {
             keychain = KeychainStore()
         }
 
-        self.state = AppState(settings: settings,
-                              keychain: keychain,
-                              apiFactory: { LiveUSPSClient(baseURL: $0) },
-                              notifier: UserNotifier())
+        _state = StateObject(wrappedValue: AppState(settings: settings,
+                                                    keychain: keychain,
+                                                    apiFactory: { LiveUSPSClient(baseURL: $0) },
+                                                    notifier: UserNotifier()))
     }
-}
-
-@main
-struct PickupBarApp: App {
-    @StateObject private var container = AppContainer()
 
     var body: some Scene {
         MenuBarExtra {
             RootView()
-                .environmentObject(container.state)
-                .environmentObject(container.state.settings)
+                .environmentObject(state)
+                .environmentObject(state.settings)
                 .frame(width: 340)
         } label: {
-            MenuBarLabel(needsAttention: container.state.needsAttention)
+            MenuBarLabel(needsAttention: state.needsAttention)
+                // The label exists from launch, while the popover's content
+                // does not, so this is what makes the launch-time credential
+                // check (and its badge + notification) actually run.
+                .task { state.start() }
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
-                .environmentObject(container.state)
-                .environmentObject(container.state.settings)
+                .environmentObject(state)
+                .environmentObject(state.settings)
         }
     }
 }
