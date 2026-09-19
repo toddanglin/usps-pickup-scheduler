@@ -110,6 +110,14 @@ final class PickupBarUITests: XCTestCase {
         app.buttons["address.validate"].click()
         mark("clicked validate")
 
+        // The verified-address banner stays up until the user continues.
+        let continueButton = app.buttons["address.continue"]
+        if continueButton.waitForExistence(timeout: 15) {
+            screenshot("02b-address-verified")
+            continueButton.click()
+            mark("clicked continue")
+        }
+
         // 3. Pickup form ------------------------------------------------
         let schedule = app.buttons["form.schedule"]
         require(schedule, "form")

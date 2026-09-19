@@ -228,6 +228,11 @@ actor TokenManager {
   func invalidate()
 }
 
+// Uses the default (file-based) keychain: `kSecUseDataProtectionKeychain` is
+// deliberately NOT set. The data-protection keychain needs an
+// application-identifier / keychain-access-group entitlement, which an ad-hoc
+// signed sandboxed build - how PickupBar is built from source - does not have,
+// so SecItemAdd fails with errSecMissingEntitlement (-34018).
 struct KeychainStore {   // service "com.toddanglin.PickupBar", account "usps-consumer-key" / "usps-consumer-secret"
   func loadCredentials() throws -> (id: String, secret: String)?
   func saveCredentials(id: String, secret: String) throws
@@ -265,15 +270,15 @@ Popover window is fixed width 340 pt. Consistent 16 pt padding, `.regularMateria
 style groups, SF Symbols, system fonts. Footer on every screen: gear button
 (opens Settings) and a Quit item.
 
-- **OnboardingView**: envelope hero, 3 numbered steps with link "Open USPS Developer Portal", two secure fields, "Verify & Save" (disabled until both non-empty, shows spinner, inline red error on failure).
-- **AddressSetupView**: fields for contact + address; "Validate & Save" runs eligibility; shows standardized address on success then continues.
+- **OnboardingView**: envelope hero, 3 numbered steps with link "Open USPS Developer Portal", a plain `TextField` for the Consumer Key and a `SecureField` for the Secret (the key is not a secret, and being able to read it back is what lets a user check a typo), "Verify & Save" (disabled until both non-empty, shows spinner, inline red error on failure).
+- **AddressSetupView**: fields for contact + address; "Validate & Save" runs eligibility and saves the standardized address, then shows it under a "verified by USPS" banner with a "Continue" button that moves on to the form. Validation itself does not change the flow state, so the banner is actually readable. Settings > Address uses the same form and simply leaves the banner up.
 - **PickupFormView**:
   - Header "Schedule a pickup" + subtitle with address line.
   - Day chips (6) — `PickupDateCalculator.availableDates`.
   - Location `Picker` (menu) + optional instructions `TextField`.
   - Package rows: 6 types each with `Stepper` 0…50, showing count. Total shown.
   - Weight `TextField` (lb) with `.decimalPad`-like formatting, default from settings.
-  - `Toggle` "No packages contain hazardous materials" — required.
+  - `Toggle` "These packages contain no hazardous materials" — required.
   - Primary button "Schedule Pickup" enabled iff total ≥ 1, weight > 0, hazmat toggled on.
 - **SchedulingView**: animated envelope (subtle pulse/float) + `ProgressView` + "Scheduling your pickup…".
 - **ConfirmationView**: green checkmark, "Pickup scheduled", date in long form, confirmation number in monospaced large text, "Copy" button, primary "Schedule another pickup".
@@ -298,6 +303,17 @@ Unit tests (XCTest, `PickupBarTests` target):
 - `LiveUSPSClient` with `URLProtocol` mock: token success, 401 → invalidCredentials, 403 → forbidden, 429, 503, 400 body parsing, eligibility standardization, schedule success (both response shapes).
 - `TokenManager`: caches, refreshes near expiry, invalidate forces refetch.
 - `AppState` transitions with a `FakeUSPSAPI`.
+
+UI tests (XCUITest, `PickupBarUITests` target): one end-to-end walk of the real
+app - onboarding, address + Continue, the pickup form, confirmation, Settings -
+driven by `make uitest`, which starts `Scripts/mock-server.py`, launches the app
+with `PICKUPBAR_UITEST=1` (throwaway defaults suite and credential storage, so a
+run never touches the user's own) plus `PICKUPBAR_BASE_URL` pointing at the
+mock, and copies the screenshots it takes out of the runner's container. It must
+be run from a normal terminal: a sandboxed shell cannot enable automation mode
+("Timed out while enabling automation mode"). Views keep stable accessibility
+identifiers (`onboarding.*`, `address.*`, `form.*`, `confirmation.*`,
+`footer.*`) for it.
 
 Manual verification: `Scripts/mock-server.py` (stdlib only) implementing the three
 endpoints; run app with `PICKUPBAR_BASE_URL=http://127.0.0.1:8787` and walk
