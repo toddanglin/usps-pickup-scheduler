@@ -8,9 +8,30 @@ final class AppContainer: ObservableObject {
     let state: AppState
 
     init() {
-        let settings = SettingsStore()
+        // UI tests run the real app, so they need somewhere to write that is
+        // not the user's own defaults or Keychain items. `PICKUPBAR_UITEST=1`
+        // in the launch environment swaps both for throwaway, test-only
+        // storage that is wiped at launch. Nothing here changes how a normally
+        // launched app behaves.
+        let settings: SettingsStore
+        let keychain: KeychainStoring
+
+        if UITestSupport.isActive {
+            let suite = UITestSupport.storageName
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            let defaults = UserDefaults(suiteName: suite) ?? .standard
+            settings = SettingsStore(defaults: defaults)
+            settings.clear()
+            let store = UITestCredentialStore(suiteName: suite)
+            try? store.deleteCredentials()
+            keychain = store
+        } else {
+            settings = SettingsStore()
+            keychain = KeychainStore()
+        }
+
         self.state = AppState(settings: settings,
-                              keychain: KeychainStore(),
+                              keychain: keychain,
                               apiFactory: { LiveUSPSClient(baseURL: $0) },
                               notifier: UserNotifier())
     }

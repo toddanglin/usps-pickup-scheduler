@@ -15,6 +15,7 @@ struct FooterBar: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Open Settings")
+                .accessibilityIdentifier("footer.settings")
 
                 Spacer(minLength: 0)
 
@@ -31,6 +32,7 @@ struct FooterBar: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Quit PickupBar")
+                .accessibilityIdentifier("footer.quit")
             }
             .padding(.horizontal, Style.outerPadding)
             .padding(.vertical, 8)

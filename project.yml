@@ -49,6 +49,21 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupBarTests
+  PickupBarUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [PickupBarUITests]
+    dependencies:
+      - target: PickupBar
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupBarUITests
+        # The XCTRunner app and the .xctest bundle are both ad-hoc signed, and
+        # ad-hoc signatures never match each other under the hardened runtime,
+        # so the runner refuses to dlopen the test bundle. Local UI testing
+        # does not need the hardened runtime.
+        ENABLE_HARDENED_RUNTIME: NO
 schemes:
   PickupBar:
     build:
@@ -58,3 +73,11 @@ schemes:
     test:
       config: Debug
       targets: [PickupBarTests]
+  PickupBarUITests:
+    build:
+      targets: { PickupBar: all, PickupBarUITests: [test] }
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [PickupBarUITests]

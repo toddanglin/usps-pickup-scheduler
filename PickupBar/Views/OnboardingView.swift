@@ -35,7 +35,9 @@ struct OnboardingView: View {
 
             VStack(spacing: 8) {
                 TextField("Consumer Key", text: $consumerKey)
+                    .accessibilityIdentifier("onboarding.key")
                 SecureField("Consumer Secret", text: $consumerSecret)
+                    .accessibilityIdentifier("onboarding.secret")
             }
             .textFieldStyle(.roundedBorder)
             .disabled(isBusy)
@@ -45,6 +47,7 @@ struct OnboardingView: View {
             }
 
             PrimaryButton("Verify & Save", isBusy: isBusy, isEnabled: canSubmit, action: save)
+                .accessibilityIdentifier("onboarding.verify")
         }
         .padding(Style.outerPadding)
     }

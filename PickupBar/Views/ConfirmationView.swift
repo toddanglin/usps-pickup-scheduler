@@ -32,6 +32,7 @@ struct ConfirmationView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text(confirmation.confirmationNumber)
+                        .accessibilityIdentifier("confirmation.number")
                         .font(.title2.monospaced().weight(.semibold))
                         .textSelection(.enabled)
                         .lineLimit(1)
@@ -39,6 +40,7 @@ struct ConfirmationView: View {
                     Button(didCopy ? "Copied" : "Copy", action: copy)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .accessibilityIdentifier("confirmation.copy")
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -49,6 +51,7 @@ struct ConfirmationView: View {
                 .multilineTextAlignment(.center)
 
             PrimaryButton("Schedule another pickup") { state.scheduleAnother() }
+                .accessibilityIdentifier("confirmation.another")
         }
         .padding(Style.outerPadding)
         .onAppear { didAppear = true }

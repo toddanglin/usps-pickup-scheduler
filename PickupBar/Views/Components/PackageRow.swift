@@ -18,6 +18,7 @@ struct PackageRow: View {
                 .frame(minWidth: 18, alignment: .trailing)
             Stepper("", value: $count, in: 0...50)
                 .labelsHidden()
+                .accessibilityIdentifier("form.stepper.\(type.rawValue)")
         }
         .opacity(count == 0 ? 0.55 : 1)
         .accessibilityElement(children: .combine)

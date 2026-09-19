@@ -24,6 +24,7 @@ struct ErrorView: View {
 
             VStack(spacing: 4) {
                 Text(error.title)
+                    .accessibilityIdentifier("error.title")
                     .font(.headline)
                     .multilineTextAlignment(.center)
                 Text(error.message)
@@ -44,6 +45,7 @@ struct ErrorView: View {
 
             VStack(spacing: 6) {
                 PrimaryButton(retryable ? "Try again" : "Back") { state.retry() }
+                    .accessibilityIdentifier("error.retry")
                 if suggestsSettings {
                     SettingsLink { Text("Open Settings") }
                         .buttonStyle(.borderless)

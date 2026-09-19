@@ -29,18 +29,22 @@ struct AddressFormView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Style.sectionSpacing) {
             VStack(spacing: 6) {
-                FieldRow(label: "First name", text: $firstName)
-                FieldRow(label: "Last name", text: $lastName)
-                FieldRow(label: "Company", text: $firm, placeholder: "Optional")
-                FieldRow(label: "Phone", text: $phone, placeholder: "10 digits")
+                FieldRow(label: "First name", text: $firstName, identifier: "address.firstName")
+                FieldRow(label: "Last name", text: $lastName, identifier: "address.lastName")
+                FieldRow(label: "Company", text: $firm, placeholder: "Optional",
+                         identifier: "address.firm")
+                FieldRow(label: "Phone", text: $phone, placeholder: "10 digits",
+                         identifier: "address.phone")
                     .onSubmit { phone = Self.digits(phone) }
-                FieldRow(label: "Email", text: $email, placeholder: "Optional")
+                FieldRow(label: "Email", text: $email, placeholder: "Optional",
+                         identifier: "address.email")
             }
 
             VStack(spacing: 6) {
-                FieldRow(label: "Street", text: $street)
-                FieldRow(label: "Apt/Suite", text: $secondary, placeholder: "Optional")
-                FieldRow(label: "City", text: $city)
+                FieldRow(label: "Street", text: $street, identifier: "address.street")
+                FieldRow(label: "Apt/Suite", text: $secondary, placeholder: "Optional",
+                         identifier: "address.secondary")
+                FieldRow(label: "City", text: $city, identifier: "address.city")
                 HStack(spacing: 6) {
                     Text("State")
                         .font(.caption)
@@ -50,11 +54,13 @@ struct AddressFormView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 52)
                         .onSubmit { stateCode = stateCode.uppercased() }
+                        .accessibilityIdentifier("address.state")
                     Text("ZIP")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("78701", text: $zip)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("address.zip")
                 }
             }
 
@@ -72,6 +78,7 @@ struct AddressFormView: View {
             }
 
             PrimaryButton("Validate & Save", isBusy: isBusy, action: save)
+                .accessibilityIdentifier("address.validate")
         }
         .disabled(isBusy)
         .onAppear(perform: prefill)
@@ -187,6 +194,9 @@ private struct FieldRow: View {
     let label: String
     @Binding var text: String
     var placeholder: String = ""
+    /// Goes on the text field itself: an identifier set on the row would land
+    /// on the enclosing group instead, where UI tests cannot use it.
+    var identifier: String = ""
 
     var body: some View {
         HStack(spacing: 6) {
@@ -196,6 +206,7 @@ private struct FieldRow: View {
                 .frame(width: 72, alignment: .trailing)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier(identifier)
         }
     }
 }

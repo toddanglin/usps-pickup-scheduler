@@ -10,12 +10,13 @@ struct DayChips: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(dates, id: \.self) { date in
+            ForEach(Array(dates.enumerated()), id: \.element) { index, date in
                 DayChip(date: date,
                         isSelected: isSelected(date),
                         isNext: date == dates.first) {
                     selection = date
                 }
+                .accessibilityIdentifier("form.chip.\(index)")
             }
         }
         .onAppear(perform: snapSelectionIfNeeded)

@@ -28,6 +28,7 @@ struct PickupFormContent: View {
             PrimaryButton("Schedule Pickup", isEnabled: state.draft.canSubmit) {
                 Task { await state.schedule() }
             }
+            .accessibilityIdentifier("form.schedule")
         }
         .padding(Style.outerPadding)
     }
@@ -104,6 +105,7 @@ struct PickupFormContent: View {
             HStack(spacing: 6) {
                 TextField("Weight", value: $state.draft.weight, format: .number)
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("form.weight")
                     .frame(width: 80)
                     .multilineTextAlignment(.trailing)
                 Text("lb")
@@ -121,5 +123,6 @@ struct PickupFormContent: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .toggleStyle(.checkbox)
+        .accessibilityIdentifier("form.hazmat")
     }
 }
