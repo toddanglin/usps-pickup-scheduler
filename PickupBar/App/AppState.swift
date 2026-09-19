@@ -13,6 +13,13 @@ final class AppState: ObservableObject {
     /// Kept even while the credentials are rejected, so the user can see *which*
     /// key USPS refused. Nil only when nothing is stored.
     @Published private(set) var credentialKeyPrefix: String?
+    /// Set when the USPS app behind the stored credentials has no Carrier
+    /// Pickup product, so scheduling will fail before the user tries. Always
+    /// `.insufficientScope`, or nil.
+    @Published private(set) var scopeWarning: USPSError?
+    /// Scopes the last token carried, for Settings › Account. Empty when no
+    /// token has been fetched yet or USPS did not list any.
+    @Published private(set) var grantedScopes: [String] = []
 
     let settings: SettingsStore
 
@@ -86,6 +93,7 @@ final class AppState: ObservableObject {
     private func verifyStoredCredentials() async {
         do {
             _ = try await tokens.validToken()
+            applyScopes(await tokens.currentScopes())
             credentialsStatus = .valid
             didNotifyInvalidCredentials = false
         } catch USPSError.invalidCredentials {
@@ -103,7 +111,7 @@ final class AppState: ObservableObject {
     /// manager), then stores them. Throws on failure and leaves `flow` alone so
     /// the onboarding screen can show an inline error.
     func saveCredentials(id: String, secret: String) async throws {
-        _ = try await api.fetchToken(clientID: id, clientSecret: secret)
+        let token = try await api.fetchToken(clientID: id, clientSecret: secret)
         do {
             try keychain.saveCredentials(id: id, secret: secret)
         } catch let error as KeychainError {
@@ -115,6 +123,7 @@ final class AppState: ObservableObject {
                     + "Your credentials are valid, but macOS refused to store them.")
         }
         await tokens.invalidate()
+        applyScopes(token.scopes)
         credentialKeyPrefix = Self.keyPrefix(id)
         credentialsStatus = .valid
         needsAttention = false
@@ -152,6 +161,10 @@ final class AppState: ObservableObject {
         } catch USPSError.invalidCredentials {
             handleInvalidCredentials()
             throw USPSError.invalidCredentials
+        } catch let error as USPSError {
+            // A scope rejection is not a credential problem: leave the flow
+            // alone so the address form can show it inline.
+            throw await enriched(error)
         }
     }
 
@@ -181,6 +194,7 @@ final class AppState: ObservableObject {
             if error == .invalidCredentials {
                 handleInvalidCredentials()
             } else {
+                let error = await enriched(error)
                 flow = .failed(error, retryable: error.isRetryable)
             }
         } catch {
@@ -251,6 +265,24 @@ final class AppState: ObservableObject {
             let fresh = try await tokens.validToken()
             return try await operation(fresh)
         }
+    }
+
+    /// Fills a scope rejection in with the scopes the current token *does*
+    /// have — the client raising it only knows that the token was refused.
+    /// Every other error passes through untouched.
+    private func enriched(_ error: USPSError) async -> USPSError {
+        guard case .insufficientScope(let granted) = error, granted.isEmpty else { return error }
+        let scopes = await tokens.currentScopes()
+        applyScopes(scopes)
+        return .insufficientScope(granted: scopes)
+    }
+
+    /// Records the scopes a fresh token carried and raises or clears the
+    /// standing warning. An empty list says nothing, so it clears neither.
+    private func applyScopes(_ scopes: [String]) {
+        grantedScopes = scopes
+        guard !scopes.isEmpty else { return }
+        scopeWarning = scopes.contains("pickup") ? nil : .insufficientScope(granted: scopes)
     }
 
     private func handleInvalidCredentials() {

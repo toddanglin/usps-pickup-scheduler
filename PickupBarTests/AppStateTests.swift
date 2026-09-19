@@ -353,6 +353,93 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(notifier.count, 0)
     }
 
+    // MARK: - 10c. missing pickup scope
+
+    func testScheduleInsufficientScopeFailsWithoutRetryOrReauth() async {
+        fake.setScopes(["addresses", "locations"])
+        fake.scheduleResult = .failure(USPSError.insufficientScope(granted: []))
+        let state = makeState(credentials: true, address: true)
+        fillDraft(state)
+        await state.schedule()
+
+        guard case .failed(let error, let retryable) = state.flow else {
+            return XCTFail("expected failed, got \(state.flow)")
+        }
+        XCTAssertFalse(retryable)
+        XCTAssertEqual(error, .insufficientScope(granted: ["addresses", "locations"]),
+                       "the granted scopes should be filled in from the cached token")
+        XCTAssertEqual(fake.scheduleCallCount, 1, "an insufficient scope must not be retried")
+        XCTAssertEqual(fake.tokenCallCount, 1, "a fresh token would have the same scopes")
+        XCTAssertFalse(state.needsAttention)
+        XCTAssertEqual(notifier.count, 0)
+        XCTAssertNotEqual(state.credentialsStatus, .invalid)
+    }
+
+    func testValidateAndSaveAddressInsufficientScopeRethrowsAndKeepsFlow() async {
+        fake.setScopes(["addresses", "locations"])
+        fake.eligibilityResult = .failure(USPSError.insufficientScope(granted: []))
+        let state = makeState(credentials: true)
+        state.start()
+
+        do {
+            _ = try await state.validateAndSaveAddress(contact: sampleContact, address: sampleAddress)
+            XCTFail("expected validateAndSaveAddress to throw")
+        } catch let error as USPSError {
+            XCTAssertEqual(error, .insufficientScope(granted: ["addresses", "locations"]))
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+
+        XCTAssertEqual(state.flow, .needsAddress, "the address screen shows this inline")
+        XCTAssertEqual(fake.eligibilityCallCount, 1)
+        XCTAssertFalse(state.needsAttention)
+        XCTAssertEqual(notifier.count, 0)
+    }
+
+    func testSaveCredentialsWithoutPickupScopeWarnsButStaysValid() async throws {
+        fake.setScopes(["addresses", "locations"])
+        let state = makeState()
+        state.start()
+        try await state.saveCredentials(id: "abc", secret: "xyz")
+
+        XCTAssertEqual(state.credentialsStatus, .valid)
+        XCTAssertEqual(state.flow, .needsAddress, "the flow still advances")
+        XCTAssertEqual(state.grantedScopes, ["addresses", "locations"])
+        XCTAssertEqual(state.scopeWarning, .insufficientScope(granted: ["addresses", "locations"]))
+    }
+
+    func testSaveCredentialsWithPickupScopeClearsTheWarning() async throws {
+        fake.setScopes(["addresses", "locations"])
+        let state = makeState()
+        state.start()
+        try await state.saveCredentials(id: "abc", secret: "xyz")
+        XCTAssertNotNil(state.scopeWarning)
+
+        fake.setScopes(["addresses", "pickup"])
+        try await state.saveCredentials(id: "abc", secret: "xyz")
+        XCTAssertNil(state.scopeWarning)
+        XCTAssertEqual(state.grantedScopes, ["addresses", "pickup"])
+        XCTAssertEqual(state.credentialsStatus, .valid)
+    }
+
+    func testStartWithoutPickupScopeSetsTheWarning() async {
+        fake.setScopes(["addresses", "locations"])
+        let state = makeState(credentials: true, address: true)
+        state.start()
+        await waitFor { state.scopeWarning != nil }
+        XCTAssertEqual(state.scopeWarning, .insufficientScope(granted: ["addresses", "locations"]))
+        XCTAssertEqual(state.credentialsStatus, .valid)
+        XCTAssertEqual(state.flow, .form)
+    }
+
+    func testStartWithAnUnknownScopeListLeavesNoWarning() async {
+        let state = makeState(credentials: true, address: true)
+        state.start()
+        await waitFor { state.credentialsStatus == .valid }
+        XCTAssertNil(state.scopeWarning, "an empty scope list says nothing about the app's products")
+        XCTAssertEqual(state.grantedScopes, [])
+    }
+
     // MARK: - 11. non-retryable failure
 
     func testScheduleForbidden() async {

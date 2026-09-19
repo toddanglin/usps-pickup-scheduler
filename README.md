@@ -52,10 +52,16 @@ no telemetry or analytics anywhere.
 2. Click "Add App" to register a new application.
 3. Copy the app's **Consumer Key** and **Consumer Secret** — you'll paste
    both into PickupBar's onboarding screen.
-4. Make sure the app has access to the **Carrier Pickup API** product. If
-   PickupBar later shows "Your USPS app can't access Carrier Pickup" (a 403
-   from USPS), go back into the developer portal and add that product to
-   your app, or contact USPS API Support.
+4. **Add the Carrier Pickup API product to the app.** This step is easy to
+   miss: a brand-new app is created with only **Default Access**, which does
+   *not* include Carrier Pickup. Open the app in the portal and add the
+   **Carrier Pickup (pickup)** API product — or ask USPS API Support to
+   enable it if the portal won't let you.
+
+   Without it the credentials still work (the token call succeeds), but every
+   pickup call comes back `401 Insufficient OAuth scope` and PickupBar shows
+   "Your USPS app can't access Carrier Pickup". Settings › Account shows
+   whether the token carries the `pickup` scope under **API access**.
 
 Keep in mind USPS only allows same-day pickup requests until **2:00 AM
 Central time** — after that, the earliest available day moves to the next
@@ -115,7 +121,8 @@ Then drag `PickupBar.app` to `/Applications`.
 |---|---|---|
 | You're offline | PickupBar couldn't reach USPS | Check your connection and try again |
 | USPS rejected your API credentials | Your Consumer Key or Secret is wrong, expired, or was revoked | Open Settings › Account to update them |
-| Your USPS app can't access Carrier Pickup | USPS returned 403 Forbidden | In the USPS developer portal, add the Carrier Pickup (pickup) product to your app, or contact USPS API Support |
+| Your USPS app can't access Carrier Pickup (401, "Insufficient OAuth scope") | Your key and secret are valid, but the USPS app they belong to has no Carrier Pickup API product, so the token comes back without the `pickup` scope | In the USPS Developer Portal, open your app and add the Carrier Pickup (pickup) API product, or ask USPS API Support to enable it, then quit and reopen PickupBar |
+| Your USPS app can't access Carrier Pickup (403) | USPS returned 403 Forbidden | In the USPS developer portal, add the Carrier Pickup (pickup) product to your app, or contact USPS API Support |
 | Slow down a little | USPS is rate-limiting requests from this app | Wait a minute and try again |
 | USPS is having trouble | The USPS API is temporarily unavailable | Try again in a few minutes |
 | USPS couldn't schedule this pickup | USPS rejected the request (bad address, invalid package data, etc.) | Review the listed details and adjust the form |

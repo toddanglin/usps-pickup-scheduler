@@ -52,10 +52,34 @@ final class USPSErrorTests: XCTestCase {
 
         XCTAssertFalse(USPSError.invalidCredentials.isRetryable)
         XCTAssertFalse(USPSError.forbidden.isRetryable)
+        XCTAssertFalse(USPSError.insufficientScope(granted: []).isRetryable)
         XCTAssertFalse(USPSError.badRequest(message: "m", details: []).isRetryable)
         XCTAssertFalse(USPSError.addressNotEligible(message: "m").isRetryable)
         // A decode failure follows a 2xx, so retrying could double-schedule.
         XCTAssertFalse(USPSError.decoding("bad").isRetryable)
+    }
+
+    func testInsufficientScopeCopy() {
+        let error = USPSError.insufficientScope(granted: ["addresses", "locations"])
+        XCTAssertEqual(error.title, "Your USPS app can't access Carrier Pickup")
+        XCTAssertEqual(error.message,
+                       "Your credentials are valid, but the USPS app they belong to doesn't include the Carrier Pickup API product.")
+        XCTAssertEqual(error.hint,
+                       "In the USPS Developer Portal, open your app and add the Carrier Pickup (pickup) API product, "
+                        + "or ask USPS API Support to enable it. Then quit and reopen PickupBar.")
+        XCTAssertFalse(error.isRetryable)
+    }
+
+    func testInsufficientScopeTechnicalDetailsListGrantedScopes() {
+        let details = USPSError.insufficientScope(granted: ["addresses", "locations"]).technicalDetails
+        XCTAssertTrue(details.contains("insufficientScope"))
+        XCTAssertTrue(details.contains("addresses"))
+        XCTAssertTrue(details.contains("locations"))
+    }
+
+    func testInsufficientScopeWithNoKnownScopesStillHasDetails() {
+        let details = USPSError.insufficientScope(granted: []).technicalDetails
+        XCTAssertTrue(details.contains("insufficientScope"))
     }
 
     func testTechnicalDetailsIncludeStatusAndBody() {

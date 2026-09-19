@@ -93,6 +93,20 @@ final class LiveUSPSClientTests: XCTestCase {
                        before.addingTimeInterval(3600).timeIntervalSince1970, accuracy: 2)
     }
 
+    func testFetchTokenParsesScopesAndAPIProducts() async throws {
+        respond(200, #"{"access_token":"tok","expires_in":28799,"scope":"domestic-prices addresses locations","api_products":"[Default Access]"}"#)
+        let token = try await client.fetchToken(clientID: "k", clientSecret: "s")
+        XCTAssertEqual(token.scopes, ["domestic-prices", "addresses", "locations"])
+        XCTAssertEqual(token.apiProducts, "[Default Access]")
+    }
+
+    func testFetchTokenWithoutScopeHasNoScopes() async throws {
+        respond(200, #"{"access_token":"tok","expires_in":28799}"#)
+        let token = try await client.fetchToken(clientID: "k", clientSecret: "s")
+        XCTAssertEqual(token.scopes, [])
+        XCTAssertNil(token.apiProducts)
+    }
+
     func testFetchToken401IsInvalidCredentials() async {
         respond(401, #"{"error":"Unauthorized"}"#)
         await assertUSPSError(.invalidCredentials,
@@ -209,6 +223,27 @@ final class LiveUSPSClientTests: XCTestCase {
     func testEligibility400WithoutMessageUsesFallbackCopy() async {
         respond(400, #"{"apiVersion":"3.0"}"#)
         await assertUSPSError(.addressNotEligible(message: "Address not eligible for carrier pickup."),
+                              try await client.checkEligibility(sampleAddress(), token: "tok"))
+    }
+
+    /// The real 401 USPS returns when the developer app has no pickup product.
+    private static let insufficientScopeBody = #"{"apiVersion":"/pickup/v3/","error":{"code":"401","message":"Insufficient OAuth scope.","errors":[{"title":"invalid_oauth_scope","detail":"The OAuth scope is invalid, missing or insufficient to access resource.","source":"Access Token"}]}}"#
+
+    func testEligibility401WithScopeErrorIsInsufficientScope() async {
+        respond(401, Self.insufficientScopeBody)
+        await assertUSPSError(.insufficientScope(granted: []),
+                              try await client.checkEligibility(sampleAddress(), token: "tok"))
+    }
+
+    func testSchedule401WithScopeErrorIsInsufficientScope() async {
+        respond(401, Self.insufficientScopeBody)
+        await assertUSPSError(.insufficientScope(granted: []),
+                              try await client.schedulePickup(sampleRequest(), token: "tok"))
+    }
+
+    func testEligibility401WithScopeWordInMessageIsInsufficientScope() async {
+        respond(401, #"{"error":{"code":"401","message":"The OAuth Scope is insufficient."}}"#)
+        await assertUSPSError(.insufficientScope(granted: []),
                               try await client.checkEligibility(sampleAddress(), token: "tok"))
     }
 

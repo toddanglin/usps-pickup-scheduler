@@ -6,6 +6,10 @@ enum USPSError: Error, Equatable, Sendable {
     case offline
     case invalidCredentials
     case forbidden
+    /// The credentials are valid, but the USPS app behind them has no Carrier
+    /// Pickup product, so the token it is issued carries no `pickup` scope.
+    /// `granted` is the scope list from the token, empty when it is unknown.
+    case insufficientScope(granted: [String])
     case rateLimited
     case serviceUnavailable
     case badRequest(message: String, details: [String])
@@ -21,7 +25,7 @@ extension USPSError {
             return "You're offline"
         case .invalidCredentials:
             return "USPS rejected your API credentials"
-        case .forbidden:
+        case .forbidden, .insufficientScope:
             return "Your USPS app can't access Carrier Pickup"
         case .rateLimited:
             return "Slow down a little"
@@ -44,6 +48,8 @@ extension USPSError {
             return "The Consumer Key or Secret is wrong, expired, or was revoked."
         case .forbidden:
             return "USPS returned 403 Forbidden."
+        case .insufficientScope:
+            return "Your credentials are valid, but the USPS app they belong to doesn't include the Carrier Pickup API product."
         case .rateLimited:
             return "USPS is rate-limiting requests from this app."
         case .serviceUnavailable:
@@ -69,6 +75,9 @@ extension USPSError {
             return "Open Settings › Account to update them."
         case .forbidden:
             return "In the USPS developer portal, make sure your app includes the Carrier Pickup (pickup) product, or contact USPS API Support."
+        case .insufficientScope:
+            return "In the USPS Developer Portal, open your app and add the Carrier Pickup (pickup) API product, "
+                + "or ask USPS API Support to enable it. Then quit and reopen PickupBar."
         case .rateLimited:
             return "Wait a minute and try again."
         case .serviceUnavailable:
@@ -93,7 +102,8 @@ extension USPSError {
             return true
         // `.decoding` is not retryable: it can only happen after a 2xx, so
         // retrying risks scheduling a second pickup.
-        case .invalidCredentials, .forbidden, .badRequest, .addressNotEligible, .decoding:
+        case .invalidCredentials, .forbidden, .insufficientScope, .badRequest,
+             .addressNotEligible, .decoding:
             return false
         }
     }
@@ -104,6 +114,7 @@ extension USPSError {
         case .offline: return "offline"
         case .invalidCredentials: return "invalidCredentials"
         case .forbidden: return "forbidden"
+        case .insufficientScope: return "insufficientScope"
         case .rateLimited: return "rateLimited"
         case .serviceUnavailable: return "serviceUnavailable"
         case .badRequest: return "badRequest"
@@ -119,6 +130,9 @@ extension USPSError {
         switch self {
         case .offline, .invalidCredentials, .forbidden, .rateLimited, .serviceUnavailable:
             break
+        case .insufficientScope(let granted):
+            lines.append("status: 401")
+            lines.append("granted scopes: \(granted.isEmpty ? "unknown" : granted.joined(separator: " "))")
         case .badRequest(let message, let details):
             lines.append("status: 400")
             lines.append("message: \(message)")

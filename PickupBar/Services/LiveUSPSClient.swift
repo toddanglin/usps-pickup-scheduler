@@ -50,7 +50,9 @@ final class LiveUSPSClient: USPSAPI {
         do {
             let body = try JSONDecoder().decode(TokenResponseBody.self, from: data)
             return OAuthToken(accessToken: body.accessToken,
-                              expiresAt: requestedAt.addingTimeInterval(body.expiresIn))
+                              expiresAt: requestedAt.addingTimeInterval(body.expiresIn),
+                              scopes: body.scopes,
+                              apiProducts: body.apiProducts)
         } catch {
             throw USPSError.decoding(String(describing: error))
         }
@@ -155,7 +157,10 @@ final class LiveUSPSClient: USPSAPI {
     private func mapStatus(_ status: Int, data: Data) -> USPSError {
         switch status {
         case 401:
-            return .invalidCredentials
+            // A 401 on a resource call is usually a dead token, but USPS also
+            // uses it when the app's products do not cover the endpoint — the
+            // credentials are fine and re-entering them would not help.
+            return Self.isScopeRejection(data) ? .insufficientScope(granted: []) : .invalidCredentials
         case 403:
             return .forbidden
         case 429:
@@ -172,6 +177,17 @@ final class LiveUSPSClient: USPSAPI {
         default:
             return .unexpected(status: status, body: Self.trimmedBody(data))
         }
+    }
+
+    /// True when a 401 body blames the token's OAuth scope rather than the
+    /// token itself.
+    private static func isScopeRejection(_ data: Data) -> Bool {
+        guard let body = try? JSONDecoder().decode(USPSErrorBody.self, from: data),
+              let error = body.error else { return false }
+        if (error.errors ?? []).contains(where: { $0.title?.lowercased() == "invalid_oauth_scope" }) {
+            return true
+        }
+        return error.message?.lowercased().contains("scope") ?? false
     }
 
     /// True when a 400 from the token endpoint carries an OAuth error code
@@ -214,15 +230,23 @@ private struct TokenErrorBody: Decodable {
 private struct TokenResponseBody: Decodable {
     var accessToken: String
     var expiresIn: TimeInterval
+    /// `scope` split on spaces — USPS lists every product the app can reach.
+    var scopes: [String] = []
+    var apiProducts: String?
 
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
         case expiresIn = "expires_in"
+        case scope
+        case apiProducts = "api_products"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         accessToken = try container.decode(String.self, forKey: .accessToken)
+        scopes = (try container.decodeIfPresent(String.self, forKey: .scope) ?? "")
+            .split(separator: " ").map(String.init)
+        apiProducts = try container.decodeIfPresent(String.self, forKey: .apiProducts)
         if let number = try? container.decode(Double.self, forKey: .expiresIn) {
             expiresIn = number
         } else {

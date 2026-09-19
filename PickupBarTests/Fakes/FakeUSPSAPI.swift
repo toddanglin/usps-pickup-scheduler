@@ -77,9 +77,16 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
 
     /// Convenience: a token that expires `seconds` from `now`.
     func setToken(_ accessToken: String = "fake-token", expiresIn seconds: TimeInterval,
-                  from now: Date = Date()) {
+                  from now: Date = Date(), scopes: [String] = [], apiProducts: String? = nil) {
         tokenResult = .success(OAuthToken(accessToken: accessToken,
-                                          expiresAt: now.addingTimeInterval(seconds)))
+                                          expiresAt: now.addingTimeInterval(seconds),
+                                          scopes: scopes,
+                                          apiProducts: apiProducts))
+    }
+
+    /// Convenience: keep the default token but give it `scopes`.
+    func setScopes(_ scopes: [String]) {
+        setToken(expiresIn: 28_799, scopes: scopes)
     }
 
     // MARK: - USPSAPI

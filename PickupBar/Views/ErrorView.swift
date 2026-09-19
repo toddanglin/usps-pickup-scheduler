@@ -14,6 +14,12 @@ struct ErrorView: View {
         }
     }
 
+    /// True when the fix is in the USPS Developer Portal, not in PickupBar.
+    private var suggestsPortal: Bool {
+        if case .insufficientScope = error { return true }
+        return false
+    }
+
     var body: some View {
         VStack(spacing: Style.sectionSpacing) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -40,7 +46,19 @@ struct ErrorView: View {
             CopyButton(text: error.technicalDetails, title: "Copy details", style: .borderless)
 
             VStack(spacing: 6) {
-                if suggestsSettings {
+                if suggestsPortal {
+                    // Nothing in the app can grant the missing API product, so
+                    // the portal is the only thing worth doing next.
+                    Link(destination: USPSPortal.url) {
+                        Text(USPSPortal.linkTitle).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    Button("Back") { state.retry() }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .accessibilityIdentifier("error.retry")
+                } else if suggestsSettings {
                     // Nothing here is fixable on this screen, so Settings — not
                     // going back — is the thing to do next.
                     SettingsButton { Text("Open Settings").frame(maxWidth: .infinity) }

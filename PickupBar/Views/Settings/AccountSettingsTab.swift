@@ -26,6 +26,13 @@ struct AccountSettingsTab: View {
                         .font(.callout.monospaced())
                         .foregroundStyle(.secondary)
                 }
+                LabeledContent("API access") { PickupAccessPill(scopes: state.grantedScopes) }
+                if !state.grantedScopes.isEmpty {
+                    Text("Granted scopes: " + state.grantedScopes.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack {
                     Button(isReplacing ? "Cancel" : "Replace…") {
                         isReplacing.toggle()
@@ -103,6 +110,32 @@ struct AccountSettingsTab: View {
             }
             isBusy = false
         }
+    }
+}
+
+/// Whether the token's scopes cover Carrier Pickup. An empty scope list means
+/// no token has come back yet, which says nothing either way.
+private struct PickupAccessPill: View {
+    let scopes: [String]
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(text).font(.callout)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(.quaternary.opacity(0.6)))
+    }
+
+    private var text: String {
+        if scopes.isEmpty { return "Carrier Pickup: Unknown" }
+        return scopes.contains("pickup") ? "Carrier Pickup: Enabled" : "Carrier Pickup: Not enabled"
+    }
+
+    private var color: Color {
+        if scopes.isEmpty { return .secondary }
+        return scopes.contains("pickup") ? .green : .orange
     }
 }
 

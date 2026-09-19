@@ -178,6 +178,7 @@ enum USPSError: Error, Equatable {
   case offline
   case invalidCredentials              // token 401 / invalid_client
   case forbidden                       // 403 on pickup — app lacks Pickup product
+  case insufficientScope(granted: [String]) // 401 invalid_oauth_scope — valid creds, app has no pickup product
   case rateLimited                     // 429
   case serviceUnavailable              // 503 / 502 / 504
   case badRequest(message: String, details: [String])   // 400 with body
@@ -195,6 +196,8 @@ User-facing copy:
 - offline: "You're offline" / "PickupBar couldn't reach USPS." / hint "Check your connection and try again."
 - invalidCredentials: "USPS rejected your API credentials" / "The Consumer Key or Secret is wrong, expired, or was revoked." / "Open Settings › Account to update them."
 - forbidden: "Your USPS app can't access Carrier Pickup" / "USPS returned 403 Forbidden." / "In the USPS developer portal, make sure your app includes the Carrier Pickup (pickup) product, or contact USPS API Support."
+- insufficientScope: "Your USPS app can't access Carrier Pickup" / "Your credentials are valid, but the USPS app they belong to doesn't include the Carrier Pickup API product." / "In the USPS Developer Portal, open your app and add the Carrier Pickup (pickup) API product, or ask USPS API Support to enable it. Then quit and reopen PickupBar."
+  Raised when a 401 body carries `error.errors[].title == "invalid_oauth_scope"` or an `error.message` mentioning "scope". `granted` is the token's scope list (`OAuthToken.scopes`, parsed from the space-separated `scope`), filled in by `AppState` from `TokenManager.currentScopes()`; the client itself passes `[]`. It is never retried with a fresh token (a new token carries the same scopes) and never routes to re-authentication, because the credentials are valid. `AppState` also detects it up front: after any successful token fetch, a non-empty scope list without `pickup` sets `scopeWarning`, which the address and pickup screens show as a yellow banner linking to the portal.
 - rateLimited: "Slow down a little" / "USPS is rate-limiting requests from this app." / "Wait a minute and try again."
 - serviceUnavailable: "USPS is having trouble" / "The USPS API is temporarily unavailable." / "Try again in a few minutes."
 - badRequest: "USPS couldn't schedule this pickup" / `message` / details listed.
@@ -204,7 +207,7 @@ User-facing copy:
 - decoding: "Something unexpected happened" / "PickupBar couldn't read the USPS response." / "The pickup may still have been scheduled. Check usps.com before scheduling again."
 
 Retryable: offline, rateLimited, serviceUnavailable, unexpected. **Not** retryable:
-invalidCredentials, forbidden, badRequest, addressNotEligible, and `decoding` — a decode
+invalidCredentials, forbidden, insufficientScope, badRequest, addressNotEligible, and `decoding` — a decode
 failure only happens after a 2xx, so the pickup was probably created and retrying risks
 scheduling a second one.
 
@@ -216,7 +219,11 @@ protocol USPSAPI: Sendable {
   func checkEligibility(_ address: PostalAddress, token: String) async throws -> PostalAddress  // standardized
   func schedulePickup(_ request: SchedulePickupRequest, token: String) async throws -> PickupConfirmation
 }
-struct OAuthToken: Codable, Equatable { var accessToken: String; var expiresAt: Date }
+struct OAuthToken: Codable, Equatable {
+  var accessToken: String; var expiresAt: Date
+  var scopes: [String] = []        // from the response's space-separated `scope`
+  var apiProducts: String?         // from `api_products`, e.g. "[Default Access]"
+}
 
 final class LiveUSPSClient: USPSAPI {
   init(baseURL: URL, session: URLSession = .shared)
@@ -225,6 +232,7 @@ final class LiveUSPSClient: USPSAPI {
 actor TokenManager {
   init(api: USPSAPI, credentials: @Sendable () -> (id: String, secret: String)?, now: @Sendable () -> Date = Date.init)
   func validToken() async throws -> String     // refresh if missing or expiring within 60 s
+  func currentScopes() -> [String]             // scopes of the cached token, [] when there is none
   func invalidate()
 }
 
@@ -300,7 +308,7 @@ background to detect revoked credentials early.
 Unit tests (XCTest, `PickupBarTests` target):
 - Model encoding matches USPS wire JSON (contact array shape, package strings decode).
 - `PickupDateCalculator`: 2 AM cutoff, Sunday skip, holiday and observed-holiday skip, count.
-- `LiveUSPSClient` with `URLProtocol` mock: token success, 401 → invalidCredentials, 403 → forbidden, 429, 503, 400 body parsing, eligibility standardization, schedule success (both response shapes).
+- `LiveUSPSClient` with `URLProtocol` mock: token success (including scope/api_products parsing), 401 with invalid_oauth_scope gives insufficientScope, 401 → invalidCredentials, 403 → forbidden, 429, 503, 400 body parsing, eligibility standardization, schedule success (both response shapes).
 - `TokenManager`: caches, refreshes near expiry, invalidate forces refetch.
 - `AppState` transitions with a `FakeUSPSAPI`.
 

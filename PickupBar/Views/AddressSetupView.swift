@@ -6,6 +6,12 @@ struct AddressSetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Style.sectionSpacing) {
+            // Better to learn about a missing API product here than by having
+            // Validate fail for a reason that is not about the address.
+            if let warning = state.scopeWarning {
+                ScopeWarningBanner(error: warning)
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("Where should we pick up?")
                     .font(.headline)

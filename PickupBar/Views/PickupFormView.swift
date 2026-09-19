@@ -17,6 +17,9 @@ struct PickupFormView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let warning = state.scopeWarning {
+                ScopeWarningBanner(error: warning, compact: true)
+            }
             header
             daySection
             locationSection

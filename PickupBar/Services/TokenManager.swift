@@ -69,6 +69,13 @@ actor TokenManager {
         }
     }
 
+    /// Scopes carried by the cached token, empty when there is no token or
+    /// USPS did not say. Used to explain a scope rejection in terms of what the
+    /// app *can* reach.
+    func currentScopes() -> [String] {
+        cached?.token.scopes ?? []
+    }
+
     /// Drops the cached token so the next `validToken()` refetches.
     func invalidate() {
         cached = nil

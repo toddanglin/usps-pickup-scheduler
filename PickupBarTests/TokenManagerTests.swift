@@ -35,6 +35,23 @@ final class TokenManagerTests: XCTestCase {
         XCTAssertEqual(api.lastCredentials?.secret, "secret")
     }
 
+    func testCurrentScopesComeFromTheCachedToken() async throws {
+        let api = FakeUSPSAPI()
+        api.setToken("tok-1", expiresIn: 3600, from: fixedNow, scopes: ["addresses", "pickup"])
+        let manager = makeManager(api: api)
+
+        let beforeFetch = await manager.currentScopes()
+        XCTAssertEqual(beforeFetch, [], "no token yet means no known scopes")
+
+        _ = try await manager.validToken()
+        let scopes = await manager.currentScopes()
+        XCTAssertEqual(scopes, ["addresses", "pickup"])
+
+        await manager.invalidate()
+        let cleared = await manager.currentScopes()
+        XCTAssertEqual(cleared, [])
+    }
+
     func testSecondCallUsesCachedToken() async throws {
         let api = FakeUSPSAPI()
         api.setToken("tok-1", expiresIn: 3600, from: fixedNow)
