@@ -4,3 +4,5 @@ xcuserdata/
 .DS_Store
 DerivedData/
 .claude/
+.env
+.env.*

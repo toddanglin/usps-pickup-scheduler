@@ -5,12 +5,18 @@
 #   sh Scripts/check-credentials.sh
 # or non-interactively:
 #   USPS_KEY=... USPS_SECRET=... sh Scripts/check-credentials.sh
+# or put USPS_KEY=... and USPS_SECRET=... in a .env file at the repo root (gitignored).
 #   USPS_TEM=1 ... to hit the USPS test environment instead of production.
 #
 # It fetches a token, prints the scopes/products USPS granted, and then calls
 # the Carrier Pickup eligibility endpoint so you can see the real status and body.
 
 set -u
+# Load a local .env (gitignored) if present: USPS_KEY=..., USPS_SECRET=..., optional USPS_TEM=1
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a; . "$ENV_FILE"; set +a
+fi
 BASE="https://apis.usps.com"
 [ "${USPS_TEM:-0}" = "1" ] && BASE="https://apis-tem.usps.com"
 
