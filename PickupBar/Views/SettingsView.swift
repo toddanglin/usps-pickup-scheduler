@@ -13,6 +13,8 @@ struct SettingsView: View {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gear") }
         }
-        .frame(width: 460, height: 380)
+        // A minimum rather than a fixed size: each tab's grouped Form
+        // scrolls on its own, and a taller window simply shows more of it.
+        .frame(minWidth: 460, minHeight: 380)
     }
 }

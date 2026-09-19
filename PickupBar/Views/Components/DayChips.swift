@@ -3,10 +3,10 @@ import SwiftUI
 /// The next six valid pickup days as a row of tappable chips.
 struct DayChips: View {
     @Binding var selection: Date
-    /// Injected so the chips can be driven from a fixed date in previews.
-    var now: Date = Date()
 
-    private var dates: [Date] { PickupDateCalculator.availableDates(from: now, count: 6) }
+    /// Recomputed every time the view appears: a popover opened after midnight
+    /// (or after the 2 AM CT cutoff) must not keep offering yesterday's days.
+    @State private var dates: [Date] = PickupDateCalculator.availableDates(from: Date(), count: 6)
 
     var body: some View {
         HStack(spacing: 6) {
@@ -19,7 +19,11 @@ struct DayChips: View {
                 .accessibilityIdentifier("form.chip.\(index)")
             }
         }
-        .onAppear(perform: snapSelectionIfNeeded)
+        .onAppear {
+            dates = PickupDateCalculator.availableDates(from: Date(), count: 6)
+            snapSelectionIfNeeded()
+        }
+        .onChange(of: dates) { _, _ in snapSelectionIfNeeded() }
     }
 
     private func isSelected(_ date: Date) -> Bool {
@@ -29,7 +33,6 @@ struct DayChips: View {
     /// The app can stay open past midnight, leaving the draft pointing at a day
     /// that is no longer offered. Snap back to the first available day.
     private func snapSelectionIfNeeded() {
-        let dates = dates
         guard let first = dates.first else { return }
         if !dates.contains(where: isSelected) {
             selection = first
@@ -56,7 +59,11 @@ private struct DayChip: View {
                     .font(.system(size: 8))
                     .opacity(isNext ? 0.8 : 0)
             }
-            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            // `.white` disappears against a light accent color; the system's
+            // own "text drawn on the selection color" role adapts to it.
+            .foregroundStyle(isSelected
+                             ? AnyShapeStyle(Color(nsColor: .alternateSelectedControlTextColor))
+                             : AnyShapeStyle(.primary))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
             .background(

@@ -13,8 +13,10 @@ final class UserNotifier: Notifying, @unchecked Sendable {
 
     init() {
         // `UNUserNotificationCenter.current()` traps in unbundled contexts
-        // (command-line test runners, previews). Guard on a bundle identifier.
-        self.center = Bundle.main.bundleIdentifier == nil ? nil : .current()
+        // (command-line test runners, previews). An actual .app bundle is the
+        // reliable signal: a test runner can carry a bundle identifier without
+        // being one.
+        self.center = Bundle.main.bundleURL.pathExtension == "app" ? .current() : nil
     }
 
     func notifyCredentialsNeeded() {

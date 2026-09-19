@@ -6,8 +6,6 @@ struct ErrorView: View {
     let retryable: Bool
 
     @EnvironmentObject private var state: AppState
-    @State private var didCopy = false
-    @State private var copyResetTask: Task<Void, Never>?
 
     private var suggestsSettings: Bool {
         switch error {
@@ -39,35 +37,26 @@ struct ErrorView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
 
-            Button(didCopy ? "Copied" : "Copy details", action: copyDetails)
-                .buttonStyle(.borderless)
-                .font(.caption)
+            CopyButton(text: error.technicalDetails, title: "Copy details", style: .borderless)
 
             VStack(spacing: 6) {
-                PrimaryButton(retryable ? "Try again" : "Back") { state.retry() }
-                    .accessibilityIdentifier("error.retry")
                 if suggestsSettings {
-                    SettingsLink { Text("Open Settings") }
+                    // Nothing here is fixable on this screen, so Settings — not
+                    // going back — is the thing to do next.
+                    SettingsButton { Text("Open Settings").frame(maxWidth: .infinity) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                    Button(retryable ? "Try again" : "Back") { state.retry() }
                         .buttonStyle(.borderless)
                         .font(.caption)
+                        .accessibilityIdentifier("error.retry")
+                } else {
+                    PrimaryButton(retryable ? "Try again" : "Back") { state.retry() }
+                        .accessibilityIdentifier("error.retry")
                 }
             }
         }
         .padding(Style.outerPadding)
         .frame(maxWidth: .infinity)
-        .onDisappear { copyResetTask?.cancel() }
-    }
-
-    private func copyDetails() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(error.technicalDetails, forType: .string)
-        didCopy = true
-        copyResetTask?.cancel()
-        copyResetTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled else { return }
-            didCopy = false
-        }
     }
 }

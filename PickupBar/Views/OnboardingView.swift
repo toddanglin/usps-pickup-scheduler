@@ -56,7 +56,9 @@ struct OnboardingView: View {
         VStack(spacing: 8) {
             Image(systemName: "envelope.fill")
                 .font(.system(size: 26))
-                .foregroundStyle(.white)
+                // Drawn on the accent color, which can be light enough to
+                // swallow white.
+                .foregroundStyle(Color(nsColor: .alternateSelectedControlTextColor))
                 .frame(width: 58, height: 58)
                 .background(Circle().fill(Color.accentColor))
             Text("Connect your USPS account")

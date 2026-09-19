@@ -4,20 +4,18 @@ import SwiftUI
 /// The content normally fits without scrolling; the `ScrollView` is only there
 /// for very large text sizes.
 struct PickupFormView: View {
-    var body: some View {
-        ScrollView {
-            PickupFormContent()
-        }
-        .frame(maxHeight: 600)
-        .scrollBounceBehavior(.basedOnSize)
-    }
-}
-
-struct PickupFormContent: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: SettingsStore
 
     var body: some View {
+        ScrollView {
+            content
+        }
+        .frame(maxHeight: 600)
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             daySection
@@ -43,6 +41,12 @@ struct PickupFormContent: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+            }
+            if let last = settings.lastConfirmation {
+                Text(Self.lastPickupCaption(last))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
     }
@@ -102,18 +106,25 @@ struct PickupFormContent: View {
     private var weightSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             SectionLabel("Weight")
-            HStack(spacing: 6) {
-                TextField("Weight", value: $state.draft.weight, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("form.weight")
-                    .frame(width: 80)
-                    .multilineTextAlignment(.trailing)
-                Text("lb")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
+            WeightField(weight: $state.draft.weight, identifier: "form.weight")
         }
+    }
+
+    /// e.g. "Last pickup: WTC123456 on Fri, Sep 19".
+    static func lastPickupCaption(_ confirmation: PickupConfirmation) -> String {
+        let parser = DateFormatter()
+        parser.timeZone = PickupDateCalculator.timeZone
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+
+        guard let date = parser.date(from: confirmation.pickupDate) else {
+            return "Last pickup: \(confirmation.confirmationNumber)"
+        }
+        let display = DateFormatter()
+        display.timeZone = PickupDateCalculator.timeZone
+        display.locale = Locale(identifier: "en_US_POSIX")
+        display.dateFormat = "EEE, MMM d"
+        return "Last pickup: \(confirmation.confirmationNumber) on \(display.string(from: date))"
     }
 
     private var hazmatToggle: some View {

@@ -14,9 +14,9 @@ struct DefaultsSettingsTab: View {
                 }
                 TextField("Special instructions", text: $settings.defaultInstructions)
                 Toggle("Dog on premises", isOn: $settings.dogPresent)
-                TextField("Estimated weight (lb)",
-                          value: $settings.defaultWeight,
-                          format: .number)
+                LabeledContent("Estimated weight") {
+                    WeightField(weight: $settings.defaultWeight, minimum: 0.1)
+                }
             } footer: {
                 Text("New pickups start with these values. You can change them per pickup.")
                     .font(.caption)

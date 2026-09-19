@@ -3,26 +3,24 @@ import ServiceManagement
 
 /// Thin wrapper over `SMAppService.mainApp` for the Settings toggle.
 ///
-/// Registration can fail for reasons the user cannot act on (an unsigned debug
-/// build, a sandbox quirk), so errors are swallowed and the getter simply
-/// reports whatever the service currently says.
+/// Registration genuinely can fail — an unapproved login item, an unsigned
+/// build — and the user can usually act on it, so both the status and the error
+/// are handed to the UI instead of being swallowed.
 enum LaunchAtLogin {
-    static var isEnabled: Bool {
-        get { SMAppService.mainApp.status == .enabled }
-        set {
-            do {
-                if newValue {
-                    if SMAppService.mainApp.status != .enabled {
-                        try SMAppService.mainApp.register()
-                    }
-                } else {
-                    if SMAppService.mainApp.status == .enabled {
-                        try SMAppService.mainApp.unregister()
-                    }
-                }
-            } catch {
-                // Nothing useful to show the user here; the toggle re-reads
-                // `status`, so it snaps back if the change did not take.
+    static var status: SMAppService.Status { SMAppService.mainApp.status }
+
+    static var isEnabled: Bool { status == .enabled }
+
+    /// Registers or unregisters the login item. Throws whatever
+    /// `ServiceManagement` reported, so the caller can show it.
+    static func setEnabled(_ enabled: Bool) throws {
+        if enabled {
+            if SMAppService.mainApp.status != .enabled {
+                try SMAppService.mainApp.register()
+            }
+        } else {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
             }
         }
     }

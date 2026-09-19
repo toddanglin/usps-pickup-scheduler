@@ -7,8 +7,6 @@ struct ConfirmationView: View {
 
     @EnvironmentObject private var state: AppState
     @State private var didAppear = false
-    @State private var didCopy = false
-    @State private var copyResetTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: Style.sectionSpacing) {
@@ -37,9 +35,7 @@ struct ConfirmationView: View {
                         .textSelection(.enabled)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                    Button(didCopy ? "Copied" : "Copy", action: copy)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    CopyButton(text: confirmation.confirmationNumber)
                         .accessibilityIdentifier("confirmation.copy")
                 }
                 .frame(maxWidth: .infinity)
@@ -55,20 +51,6 @@ struct ConfirmationView: View {
         }
         .padding(Style.outerPadding)
         .onAppear { didAppear = true }
-        .onDisappear { copyResetTask?.cancel() }
-    }
-
-    private func copy() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(confirmation.confirmationNumber, forType: .string)
-        didCopy = true
-        copyResetTask?.cancel()
-        copyResetTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled else { return }
-            didCopy = false
-        }
     }
 
     /// USPS sends back "yyyy-MM-dd"; show it in long form, falling back to the

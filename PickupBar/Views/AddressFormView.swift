@@ -4,10 +4,17 @@ import SwiftUI
 /// Settings › Address. Runs the USPS eligibility check on save and reports the
 /// standardized address inline.
 struct AddressFormView: View {
-    var onSaved: (() -> Void)?
+    /// When set, a "Continue" button appears under the verified-address banner.
+    /// Onboarding uses it to leave the address step; Settings shows the banner
+    /// alone, because there is nowhere to continue to.
+    var continueAction: (() -> Void)?
 
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: SettingsStore
+
+    /// 72 pt / 52 pt at the default text size, grown with the user's.
+    @ScaledMetric(relativeTo: .caption) private var labelWidth: CGFloat = 72
+    @ScaledMetric(relativeTo: .body) private var stateFieldWidth: CGFloat = 52
 
     @State private var firstName = ""
     @State private var lastName = ""
@@ -29,37 +36,47 @@ struct AddressFormView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Style.sectionSpacing) {
             VStack(spacing: 6) {
-                FieldRow(label: "First name", text: $firstName, identifier: "address.firstName")
-                FieldRow(label: "Last name", text: $lastName, identifier: "address.lastName")
+                FieldRow(label: "First name", text: $firstName, identifier: "address.firstName", labelWidth: labelWidth)
+                FieldRow(label: "Last name", text: $lastName, identifier: "address.lastName", labelWidth: labelWidth)
                 FieldRow(label: "Company", text: $firm, placeholder: "Optional",
-                         identifier: "address.firm")
+                         identifier: "address.firm", labelWidth: labelWidth)
                 FieldRow(label: "Phone", text: $phone, placeholder: "10 digits",
-                         identifier: "address.phone")
-                    .onSubmit { phone = Self.digits(phone) }
+                         identifier: "address.phone", labelWidth: labelWidth)
+                    .onChange(of: phone) { _, newValue in
+                        let cleaned = String(Self.digits(newValue).prefix(10))
+                        if cleaned != newValue { phone = cleaned }
+                    }
                 FieldRow(label: "Email", text: $email, placeholder: "Optional",
-                         identifier: "address.email")
+                         identifier: "address.email", labelWidth: labelWidth)
             }
 
             VStack(spacing: 6) {
-                FieldRow(label: "Street", text: $street, identifier: "address.street")
+                FieldRow(label: "Street", text: $street, identifier: "address.street", labelWidth: labelWidth)
                 FieldRow(label: "Apt/Suite", text: $secondary, placeholder: "Optional",
-                         identifier: "address.secondary")
-                FieldRow(label: "City", text: $city, identifier: "address.city")
+                         identifier: "address.secondary", labelWidth: labelWidth)
+                FieldRow(label: "City", text: $city, identifier: "address.city", labelWidth: labelWidth)
                 HStack(spacing: 6) {
                     Text("State")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .frame(width: 72, alignment: .trailing)
+                        .frame(width: labelWidth, alignment: .trailing)
                     TextField("TX", text: $stateCode)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 52)
-                        .onSubmit { stateCode = stateCode.uppercased() }
+                        .frame(width: stateFieldWidth)
+                        .onChange(of: stateCode) { _, newValue in
+                            let cleaned = String(newValue.filter(\.isLetter).uppercased().prefix(2))
+                            if cleaned != newValue { stateCode = cleaned }
+                        }
                         .accessibilityIdentifier("address.state")
                     Text("ZIP")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("78701", text: $zip)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: zip) { _, newValue in
+                            let cleaned = String(Self.digits(newValue).prefix(5))
+                            if cleaned != newValue { zip = cleaned }
+                        }
                         .accessibilityIdentifier("address.zip")
                 }
             }
@@ -79,6 +96,11 @@ struct AddressFormView: View {
 
             PrimaryButton("Validate & Save", isBusy: isBusy, action: save)
                 .accessibilityIdentifier("address.validate")
+
+            if let continueAction, standardized != nil, error == nil, problems.isEmpty {
+                PrimaryButton("Continue", action: continueAction)
+                    .accessibilityIdentifier("address.continue")
+            }
         }
         .disabled(isBusy)
         .onAppear(perform: prefill)
@@ -151,7 +173,6 @@ struct AddressFormView: View {
             do {
                 standardized = try await state.validateAndSaveAddress(contact: contact,
                                                                       address: address)
-                onSaved?()
             } catch let uspsError as USPSError {
                 error = uspsError
             } catch {
@@ -162,14 +183,16 @@ struct AddressFormView: View {
     }
 
     /// Human-readable list of everything still wrong with the form.
-    func validate() -> [String] {
+    private func validate() -> [String] {
         var problems: [String] = []
         if firstName.trimmed.isEmpty { problems.append("First name is required.") }
         if lastName.trimmed.isEmpty { problems.append("Last name is required.") }
         if Self.digits(phone).count != 10 { problems.append("Phone must be 10 digits.") }
         if street.trimmed.isEmpty { problems.append("Street is required.") }
         if city.trimmed.isEmpty { problems.append("City is required.") }
-        if stateCode.count != 2 { problems.append("State must be 2 letters.") }
+        if stateCode.count != 2 || !stateCode.allSatisfy(\.isLetter) {
+            problems.append("State must be 2 letters.")
+        }
         if Self.digits(zip).count != 5 { problems.append("ZIP must be 5 digits.") }
         return problems
     }
@@ -197,13 +220,14 @@ private struct FieldRow: View {
     /// Goes on the text field itself: an identifier set on the row would land
     /// on the enclosing group instead, where UI tests cannot use it.
     var identifier: String = ""
+    var labelWidth: CGFloat = 72
 
     var body: some View {
         HStack(spacing: 6) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .trailing)
+                .frame(width: labelWidth, alignment: .trailing)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier(identifier)
