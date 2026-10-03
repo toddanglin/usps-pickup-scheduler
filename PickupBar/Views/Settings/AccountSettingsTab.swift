@@ -130,12 +130,12 @@ private struct PickupAccessPill: View {
 
     private var text: String {
         if scopes.isEmpty { return "Carrier Pickup: Unknown" }
-        return scopes.contains("pickup") ? "Carrier Pickup: Enabled" : "Carrier Pickup: Not enabled"
+        return OAuthToken.scopesAllowPickup(scopes) ? "Carrier Pickup: Enabled" : "Carrier Pickup: Not enabled"
     }
 
     private var color: Color {
         if scopes.isEmpty { return .secondary }
-        return scopes.contains("pickup") ? .green : .orange
+        return OAuthToken.scopesAllowPickup(scopes) ? .green : .orange
     }
 }
 

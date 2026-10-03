@@ -103,8 +103,11 @@ final class SettingsStore: ObservableObject {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             contact = try container.decodeIfPresent(PickupContact.self, forKey: .contact)
             address = try container.decodeIfPresent(PostalAddress.self, forKey: .address)
-            defaultLocation = try container.decodeIfPresent(PackageLocation.self,
-                                                            forKey: .defaultLocation) ?? .frontDoor
+            // Read as a raw string so a retired location (SECURITY_DECK,
+            // SHIPPING_DOCK) falls back to the default, not to `.other`, which
+            // would block submitting until the user typed instructions.
+            let rawLocation = try? container.decodeIfPresent(String.self, forKey: .defaultLocation)
+            defaultLocation = rawLocation.flatMap { PackageLocation(lenientRawValue: $0) } ?? .frontDoor
             defaultInstructions = try container.decodeIfPresent(String.self,
                                                                 forKey: .defaultInstructions) ?? ""
             dogPresent = try container.decodeIfPresent(Bool.self, forKey: .dogPresent) ?? false

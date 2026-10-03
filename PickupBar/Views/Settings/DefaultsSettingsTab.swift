@@ -13,6 +13,12 @@ struct DefaultsSettingsTab: View {
                     }
                 }
                 TextField("Special instructions", text: $settings.defaultInstructions)
+                if settings.defaultLocation == .other,
+                   settings.defaultInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Instructions are required when the location is Other")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 Toggle("Dog on premises", isOn: $settings.dogPresent)
                 LabeledContent("Estimated weight") {
                     WeightField(weight: $settings.defaultWeight, minimum: 0.1)

@@ -20,8 +20,12 @@ using your own USPS developer credentials — no browser, no re-login.
 - Verified default pickup address (checked against USPS eligibility)
 - Next-6-days date picker that skips Sundays and USPS holidays, and honors
   the 2 AM Central same-day cutoff
-- Package counts per service type, estimated weight, pickup location, special
+- Package counts per service type (Ground Advantage, Priority Mail, Priority
+  Mail Express, International, Returns, Other), estimated weight, special
   instructions, and a "dog on premises" flag
+- Pickup locations: Front Door, Back Door, Side Door, Knock on Door / Ring
+  Bell, Mail Room, Office, Porch, Reception, Mailbox, or Other (Other needs
+  special instructions)
 - Required hazmat attestation before scheduling
 - Progress indicator and a confirmation screen with a copyable confirmation
   number
@@ -55,13 +59,13 @@ no telemetry or analytics anywhere.
 4. **Add the Carrier Pickup API product to the app.** This step is easy to
    miss: a brand-new app is created with only **Default Access**, which does
    *not* include Carrier Pickup. Open the app in the portal and add the
-   **Carrier Pickup (pickup)** API product — or ask USPS API Support to
+   **Carrier Pickup** API product (OAuth scope `carrier-pickup`) — or ask USPS API Support to
    enable it if the portal won't let you.
 
    Without it the credentials still work (the token call succeeds), but every
    pickup call comes back `401 Insufficient OAuth scope` and PickupBar shows
    "Your USPS app can't access Carrier Pickup". Settings › Account shows
-   whether the token carries the `pickup` scope under **API access**.
+   whether the token carries the `carrier-pickup` scope under **API access**.
 
 Keep in mind USPS only allows same-day pickup requests until **2:00 AM
 Central time** — after that, the earliest available day moves to the next
@@ -97,7 +101,9 @@ Then drag `PickupBar.app` to `/Applications`.
 **First run:**
 - Open the USPS Developer Portal, create an app, and paste its Consumer Key
   and Secret into PickupBar — it verifies them by requesting a token
-- Enter your pickup contact and address; PickupBar validates it against
+- Enter your pickup contact and address — an email (recommended: USPS sends
+  the pickup confirmation there), a 10-digit cell phone, or both — and
+  PickupBar validates it against
   USPS's eligibility check and stores the standardized version
 - You land on the pickup form, ready to schedule
 
@@ -121,8 +127,8 @@ Then drag `PickupBar.app` to `/Applications`.
 |---|---|---|
 | You're offline | PickupBar couldn't reach USPS | Check your connection and try again |
 | USPS rejected your API credentials | Your Consumer Key or Secret is wrong, expired, or was revoked | Open Settings › Account to update them |
-| Your USPS app can't access Carrier Pickup (401, "Insufficient OAuth scope") | Your key and secret are valid, but the USPS app they belong to has no Carrier Pickup API product, so the token comes back without the `pickup` scope | In the USPS Developer Portal, open your app and add the Carrier Pickup (pickup) API product, or ask USPS API Support to enable it, then quit and reopen PickupBar |
-| Your USPS app can't access Carrier Pickup (403) | USPS returned 403 Forbidden | In the USPS developer portal, add the Carrier Pickup (pickup) product to your app, or contact USPS API Support |
+| Your USPS app can't access Carrier Pickup (401, "Insufficient OAuth scope") | Your key and secret are valid, but the USPS app they belong to has no Carrier Pickup API product, so the token comes back without the `carrier-pickup` scope | In the USPS Developer Portal, open your app and add the Carrier Pickup (carrier-pickup) API product, or ask USPS API Support to enable it, then quit and reopen PickupBar |
+| Your USPS app can't access Carrier Pickup (403) | USPS returned 403 Forbidden | In the USPS developer portal, add the Carrier Pickup (carrier-pickup) product to your app, or contact USPS API Support |
 | Slow down a little | USPS is rate-limiting requests from this app | Wait a minute and try again |
 | USPS is having trouble | The USPS API is temporarily unavailable | Try again in a few minutes |
 | USPS couldn't schedule this pickup | USPS rejected the request (bad address, invalid package data, etc.) | Review the listed details and adjust the form |
@@ -141,8 +147,18 @@ PickupBar/Services/     USPS client, token manager, Keychain, settings store, da
 PickupBar/Views/        SwiftUI views (onboarding, address setup, form, scheduling, confirmation, errors, settings)
 PickupBarTests/         XCTest unit tests
 Scripts/                make-icon.swift, mock-server.py
+docs/usps/              vendored USPS Carrier Pickup OpenAPI spec (the API contract)
 docs/superpowers/       design spec and implementation plans for this project
 ```
+
+**The USPS contract is `docs/usps/carrier-pickup-v3.yaml`** — the official
+Carrier Pickup 3.1.10 OpenAPI spec. Build request models from its
+`components.schemas`, not from USPS's README examples (those are stale: their
+`{"phone": ...}` contact entry is rejected by the live API).
+`PickupBarTests/RequestContractTests.swift` checks the app's requests against
+it, and the mock server enforces it: an unknown key, a bad enum value, a JSON
+`null`, a contact entry other than `{"email"}`/`{"cellNumber"}`, or `OTHER`
+without special instructions gets a USPS-style `400 OASValidation` error.
 
 For manual QA without hitting production USPS, run the stdlib-only mock
 server and point the app at it:

@@ -422,6 +422,26 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.credentialsStatus, .valid)
     }
 
+    func testRealCarrierPickupScopeNameLeavesNoWarning() async throws {
+        // What USPS actually grants an app with the Carrier Pickup product.
+        fake.setScopes("addresses carrier-pickup labels".split(separator: " ").map(String.init))
+        let state = makeState()
+        state.start()
+        try await state.saveCredentials(id: "abc", secret: "xyz")
+        XCTAssertNil(state.scopeWarning)
+        XCTAssertEqual(state.grantedScopes, ["addresses", "carrier-pickup", "labels"])
+    }
+
+    func testTokenAllowsPickupAcceptsEitherScopeName() {
+        let now = Date()
+        XCTAssertTrue(OAuthToken(accessToken: "t", expiresAt: now, scopes: ["carrier-pickup"]).allowsPickup)
+        XCTAssertTrue(OAuthToken(accessToken: "t", expiresAt: now, scopes: ["pickup"]).allowsPickup)
+        XCTAssertTrue(OAuthToken(accessToken: "t", expiresAt: now, scopes: []).allowsPickup)
+        XCTAssertFalse(OAuthToken(accessToken: "t", expiresAt: now, scopes: ["addresses", "labels"]).allowsPickup)
+        XCTAssertTrue(OAuthToken.scopesAllowPickup(["addresses", "carrier-pickup"]))
+        XCTAssertFalse(OAuthToken.scopesAllowPickup(["carrier-pickup-x"]))
+    }
+
     func testStartWithoutPickupScopeSetsTheWarning() async {
         fake.setScopes(["addresses", "locations"])
         let state = makeState(credentials: true, address: true)
@@ -523,6 +543,27 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(draft.canSubmit)
         draft.weight = 0
         XCTAssertFalse(draft.canSubmit)
+    }
+
+    func testDraftWithLocationOtherNeedsInstructions() {
+        var draft = PickupDraft.fromDefaults(settings, now: Self.fixedNow)
+        draft.counts[.priorityMail] = 1
+        draft.hazmatConfirmed = true
+        draft.instructions = ""
+        XCTAssertFalse(draft.instructionsMissing)
+        XCTAssertTrue(draft.canSubmit)
+
+        draft.location = .other
+        XCTAssertTrue(draft.instructionsMissing)
+        XCTAssertFalse(draft.canSubmit)
+
+        draft.instructions = "   "
+        XCTAssertTrue(draft.instructionsMissing, "whitespace is not an instruction")
+        XCTAssertFalse(draft.canSubmit)
+
+        draft.instructions = "Behind the garage"
+        XCTAssertFalse(draft.instructionsMissing)
+        XCTAssertTrue(draft.canSubmit)
     }
 
     func testDraftDefaultsComeFromSettings() {

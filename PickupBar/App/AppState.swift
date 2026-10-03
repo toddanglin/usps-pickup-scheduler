@@ -282,7 +282,7 @@ final class AppState: ObservableObject {
     private func applyScopes(_ scopes: [String]) {
         grantedScopes = scopes
         guard !scopes.isEmpty else { return }
-        scopeWarning = scopes.contains("pickup") ? nil : .insufficientScope(granted: scopes)
+        scopeWarning = OAuthToken.scopesAllowPickup(scopes) ? nil : .insufficientScope(granted: scopes)
     }
 
     private func handleInvalidCredentials() {

@@ -7,7 +7,7 @@ enum USPSError: Error, Equatable, Sendable {
     case invalidCredentials
     case forbidden
     /// The credentials are valid, but the USPS app behind them has no Carrier
-    /// Pickup product, so the token it is issued carries no `pickup` scope.
+    /// Pickup product, so the token it is issued carries no `carrier-pickup` scope.
     /// `granted` is the scope list from the token, empty when it is unknown.
     case insufficientScope(granted: [String])
     case rateLimited
@@ -74,9 +74,9 @@ extension USPSError {
         case .invalidCredentials:
             return "Open Settings › Account to update them."
         case .forbidden:
-            return "In the USPS developer portal, make sure your app includes the Carrier Pickup (pickup) product, or contact USPS API Support."
+            return "In the USPS developer portal, make sure your app includes the Carrier Pickup (carrier-pickup) product, or contact USPS API Support."
         case .insufficientScope:
-            return "In the USPS Developer Portal, open your app and add the Carrier Pickup (pickup) API product, "
+            return "In the USPS Developer Portal, open your app and add the Carrier Pickup (carrier-pickup) API product, "
                 + "or ask USPS API Support to enable it. Then quit and reopen PickupBar."
         case .rateLimited:
             return "Wait a minute and try again."
