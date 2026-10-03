@@ -6,3 +6,4 @@ DerivedData/
 .claude/
 .env
 .env.*
+Local.xcconfig

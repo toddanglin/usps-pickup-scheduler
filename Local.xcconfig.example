@@ -1,0 +1,6 @@
+// Copy to Local.xcconfig (gitignored) to sign local builds with your own identity.
+// Find yours with:  security find-identity -v -p codesigning
+// The team ID is the "OU" of that certificate, e.g.:
+//   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject
+CODE_SIGN_IDENTITY = Apple Development
+DEVELOPMENT_TEAM = YOURTEAMID

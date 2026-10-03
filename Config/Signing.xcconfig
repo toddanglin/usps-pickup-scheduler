@@ -1,0 +1,10 @@
+// Code signing defaults. Ad-hoc ("-") works for anyone without an Apple developer
+// account, but every ad-hoc build has a different code identity, so macOS asks for
+// Keychain access again after each rebuild.
+//
+// To sign with a stable identity (and make "Always Allow" stick), copy
+// Local.xcconfig.example to Local.xcconfig at the repo root and fill it in.
+// Local.xcconfig is gitignored.
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = -
+#include? "../Local.xcconfig"
