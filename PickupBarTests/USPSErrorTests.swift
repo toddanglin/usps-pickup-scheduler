@@ -65,7 +65,7 @@ final class USPSErrorTests: XCTestCase {
         XCTAssertEqual(error.message,
                        "Your credentials are valid, but the USPS app they belong to doesn't include the Carrier Pickup API product.")
         XCTAssertEqual(error.hint,
-                       "In the USPS Developer Portal, open your app and add the Carrier Pickup (pickup) API product, "
+                       "In the USPS Developer Portal, open your app and add the Carrier Pickup (carrier-pickup) API product, "
                         + "or ask USPS API Support to enable it. Then quit and reopen PickupBar.")
         XCTAssertFalse(error.isRetryable)
     }

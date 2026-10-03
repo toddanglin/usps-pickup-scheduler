@@ -16,7 +16,12 @@ struct PickupDraft: Equatable {
 
     var totalPackages: Int { counts.values.reduce(0, +) }
 
-    var canSubmit: Bool { totalPackages > 0 && weight > 0 && hazmatConfirmed }
+    /// USPS requires special instructions when the location is `.other`.
+    var instructionsMissing: Bool {
+        location == .other && instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var canSubmit: Bool { totalPackages > 0 && weight > 0 && hazmatConfirmed && !instructionsMissing }
 
     /// A fresh draft: the next available pickup day, and the user's saved
     /// location/instructions/dog/weight defaults, with all counts at zero.

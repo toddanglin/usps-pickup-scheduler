@@ -73,8 +73,19 @@ struct PickupFormView: View {
             .pickerStyle(.menu)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            TextField("Special instructions (optional)", text: $state.draft.instructions)
+            TextField(state.draft.location == .other
+                      ? "Special instructions (required)"
+                      : "Special instructions (optional)",
+                      text: $state.draft.instructions)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("form.instructions")
+
+            if state.draft.instructionsMissing {
+                Text("Instructions are required when the location is Other")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("form.instructionsRequired")
+            }
 
             Toggle("Dog on premises", isOn: $state.draft.dogPresent)
                 .toggleStyle(.checkbox)

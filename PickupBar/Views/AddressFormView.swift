@@ -40,14 +40,20 @@ struct AddressFormView: View {
                 FieldRow(label: "Last name", text: $lastName, identifier: "address.lastName", labelWidth: labelWidth)
                 FieldRow(label: "Company", text: $firm, placeholder: "Optional",
                          identifier: "address.firm", labelWidth: labelWidth)
-                FieldRow(label: "Phone", text: $phone, placeholder: "10 digits",
+                FieldRow(label: "Email", text: $email, placeholder: "Recommended",
+                         identifier: "address.email", labelWidth: labelWidth)
+                FieldRow(label: "Cell phone", text: $phone, placeholder: "Optional, 10 digits",
                          identifier: "address.phone", labelWidth: labelWidth)
                     .onChange(of: phone) { _, newValue in
                         let cleaned = String(Self.digits(newValue).prefix(10))
                         if cleaned != newValue { phone = cleaned }
                     }
-                FieldRow(label: "Email", text: $email, placeholder: "Optional",
-                         identifier: "address.email", labelWidth: labelWidth)
+                Text("Enter an email, a cell phone, or both. USPS sends the pickup confirmation to your email.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, labelWidth + 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             VStack(spacing: 6) {
@@ -189,18 +195,11 @@ struct AddressFormView: View {
     }
 
     /// Human-readable list of everything still wrong with the form.
+    /// The rules live in `AddressFormInput` so they can be unit tested.
     private func validate() -> [String] {
-        var problems: [String] = []
-        if firstName.trimmed.isEmpty { problems.append("First name is required.") }
-        if lastName.trimmed.isEmpty { problems.append("Last name is required.") }
-        if Self.digits(phone).count != 10 { problems.append("Phone must be 10 digits.") }
-        if street.trimmed.isEmpty { problems.append("Street is required.") }
-        if city.trimmed.isEmpty { problems.append("City is required.") }
-        if stateCode.count != 2 || !stateCode.allSatisfy(\.isLetter) {
-            problems.append("State must be 2 letters.")
-        }
-        if Self.digits(zip).count != 5 { problems.append("ZIP must be 5 digits.") }
-        return problems
+        AddressFormInput(firstName: firstName, lastName: lastName, firm: firm, email: email,
+                         phone: phone, street: street, secondary: secondary, city: city,
+                         state: stateCode, zip: zip).problems()
     }
 
     // MARK: - Helpers

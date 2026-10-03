@@ -13,7 +13,14 @@ struct OAuthToken: Codable, Equatable, Sendable {
 
     /// Whether this token can call the Carrier Pickup endpoints. An empty
     /// scope list says nothing either way, so it counts as allowed.
-    var allowsPickup: Bool { scopes.isEmpty || scopes.contains("pickup") }
+    var allowsPickup: Bool { Self.scopesAllowPickup(scopes) }
+
+    /// The one place that decides whether a scope list covers Carrier Pickup.
+    /// USPS grants `carrier-pickup`; `pickup` is accepted too, since older
+    /// documentation named the scope that way.
+    static func scopesAllowPickup(_ scopes: [String]) -> Bool {
+        scopes.isEmpty || scopes.contains("carrier-pickup") || scopes.contains("pickup")
+    }
 
     init(accessToken: String, expiresAt: Date, scopes: [String] = [], apiProducts: String? = nil) {
         self.accessToken = accessToken

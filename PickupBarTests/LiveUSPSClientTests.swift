@@ -285,7 +285,27 @@ final class LiveUSPSClientTests: XCTestCase {
         let contact = try XCTUnwrap(pickupAddress["contact"] as? [[String: Any]])
         XCTAssertEqual(contact.count, 2)
         XCTAssertEqual(contact[0]["email"] as? String, "todd@example.com")
-        XCTAssertEqual(contact[1]["phone"] as? String, "3145551212")
+        XCTAssertEqual(contact[1] as? [String: String], ["cellNumber": "3145551212"])
+        XCTAssertFalse(String(decoding: body, as: UTF8.self).contains("null"))
+    }
+
+    func testScheduleDecodesTheRealUSPSTestEnvironmentResponse() async throws {
+        // Captured verbatim from apis-tem.usps.com on 2026-10-02. Note the
+        // empty `{}` contact entry and the zero-count package lines.
+        respond(200, #"""
+        {"confirmationNumber":"EMC719435786","pickupDate":"2026-10-05","carrierPickupRequest":{"pickupDate":"2026-10-05","pickupAddress":{"firstName":"TEST","lastName":"USER","address":{"streetAddress":"475 LENFANT PLZ SW","city":"WASHINGTON","state":"DC","ZIPCode":"20260","ZIPPlus4":"0001"},"contact":[{"email":"TEST@EXAMPLE.COM"},{}]},"packages":[{"packageType":"PRIORITY_MAIL_EXPRESS","packageCount":0},{"packageType":"PRIORITY_MAIL","packageCount":1},{"packageType":"RETURNS","packageCount":0},{"packageType":"USPS_GROUND_ADVANTAGE","packageCount":0},{"packageType":"INTERNATIONAL","packageCount":0},{"packageType":"OTHER","packageCount":0}],"estimatedWeight":2,"pickupLocation":{"packageLocation":"FRONT_DOOR","dogPresent":false}}}
+        """#)
+        let confirmation = try await client.schedulePickup(sampleRequest(), token: "tok")
+        XCTAssertEqual(confirmation, PickupConfirmation(confirmationNumber: "EMC719435786",
+                                                        pickupDate: "2026-10-05"))
+    }
+
+    func testScheduleIgnoresUnknownPackageTypesInTheEcho() async throws {
+        respond(200, #"""
+        {"confirmationNumber":"EMC1","pickupDate":"2026-10-05","carrierPickupRequest":{"packages":[{"packageType":"BRAND_NEW_TYPE","packageCount":"x"}],"pickupAddress":{"contact":[{},{"weird":1}]}}}
+        """#)
+        let confirmation = try await client.schedulePickup(sampleRequest(), token: "tok")
+        XCTAssertEqual(confirmation, PickupConfirmation(confirmationNumber: "EMC1", pickupDate: "2026-10-05"))
     }
 
     func testScheduleTopLevelPickupDateWinsOverNestedEcho() async throws {

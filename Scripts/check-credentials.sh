@@ -48,8 +48,8 @@ if [ -z "$TOKEN" ]; then
 fi
 
 case " $(printf '%s' "$TOKEN_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("scope",""))') " in
-  *" pickup "*) echo "   OK: the token includes the 'pickup' scope." ;;
-  *) echo "   PROBLEM: the token does NOT include the 'pickup' scope."
+  *" carrier-pickup "*|*" pickup "*) echo "   OK: the token includes the 'carrier-pickup' scope." ;;
+  *) echo "   PROBLEM: the token does NOT include the 'carrier-pickup' scope."
      echo "   In the USPS developer portal, add the Carrier Pickup API product to this app"
      echo "   (or ask USPS API Support to enable it), then retry." ;;
 esac

@@ -27,6 +27,12 @@ Usage:
     # Use a different port:
     PORT=9000 python3 Scripts/mock-server.py
 
+The schedule endpoint validates the body against the USPS OpenAPI contract
+(docs/usps/carrier-pickup-v3.yaml) the way the live API does -- unknown keys,
+contact entries other than {"email"} / {"cellNumber"}, enum values, JSON null,
+OTHER without specialInstructions -- and answers violations with a 400
+OASValidation error.
+
 Endpoints emulated:
     POST /oauth2/v3/token
     GET  /pickup/v3/carrier-pickup/eligibility
@@ -43,6 +49,7 @@ Environment variables:
 import json
 import os
 import random
+import re
 import string
 import sys
 import time
@@ -61,6 +68,189 @@ def random_digits(n):
 def random_token_suffix(n=24):
     alphabet = string.ascii_lowercase + string.digits
     return "".join(random.choice(alphabet) for _ in range(n))
+
+
+# -- request contract ---------------------------------------------------------
+#
+# Mirrors `components.schemas` in docs/usps/carrier-pickup-v3.yaml (USPS Carrier
+# Pickup 3.1.10), which is the contract. The live API validates the body against
+# that OpenAPI spec and rejects violations with a 400 "OASValidation" error, so
+# the mock does the same instead of accepting anything.
+
+REQUEST_KEYS = {"pickupDate", "pickupAddress", "packages", "estimatedWeight",
+                "pickupLocation", "nextAvailablePickup"}
+REQUIRED_REQUEST_KEYS = {"pickupDate", "pickupAddress", "packages", "estimatedWeight",
+                         "pickupLocation"}
+PICKUP_ADDRESS_KEYS = {"firstName", "lastName", "firm", "address", "contact"}
+CONTACT_KEYS = {"email", "cellNumber"}
+PACKAGE_KEYS = {"packageType", "packageCount"}
+PACKAGE_TYPES = {"FIRST-CLASS_PACKAGE_SERVICE", "PRIORITY_MAIL_EXPRESS", "PRIORITY_MAIL",
+                 "RETURNS", "USPS_GROUND_ADVANTAGE", "INTERNATIONAL", "OTHER"}
+PICKUP_LOCATION_KEYS = {"packageLocation", "specialInstructions", "dogPresent"}
+PACKAGE_LOCATIONS = {"FRONT_DOOR", "BACK_DOOR", "SIDE_DOOR", "KNOCK_ON_DOOR", "MAIL_ROOM",
+                     "OFFICE", "PORCH", "RECEPTION", "MAILBOX", "OTHER"}
+# The order the real test environment echoes package lines in.
+ECHO_PACKAGE_TYPES = ["PRIORITY_MAIL_EXPRESS", "PRIORITY_MAIL", "RETURNS",
+                      "USPS_GROUND_ADVANTAGE", "INTERNATIONAL", "OTHER"]
+CELL_NUMBER = re.compile(r"^\d{10}$")
+
+
+def _find_null(value, path):
+    """Returns the path of the first JSON null inside `value`, or None."""
+    if value is None:
+        return path or "/"
+    if isinstance(value, dict):
+        for key, child in value.items():
+            found = _find_null(child, f"{path}/{key}")
+            if found:
+                return found
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            found = _find_null(child, f"{path}/{index}")
+            if found:
+                return found
+    return None
+
+
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def schedule_violations(body):
+    """Lists every way `body` breaks the SchedulePickupRequest schema, as
+    (path, message) pairs. Empty when the body is valid."""
+    problems = []
+
+    def unknown_keys(obj, allowed, path):
+        extra = sorted(set(obj) - allowed)
+        if extra:
+            names = ", ".join(extra)
+            problems.append((path, "Object instance has properties which are not allowed "
+                                   f"by the schema: [{names}]"))
+
+    if not isinstance(body, dict):
+        return [("/", "Request body must be a JSON object")]
+    null_path = _find_null(body, "")
+    if null_path is not None:
+        problems.append((null_path, "Instance type (null) does not match any allowed primitive type"))
+
+    unknown_keys(body, REQUEST_KEYS, "/")
+    missing = sorted(REQUIRED_REQUEST_KEYS - set(body))
+    if missing:
+        problems.append(("/", f"Object has missing required properties: [{', '.join(missing)}]"))
+
+    address = body.get("pickupAddress")
+    if isinstance(address, dict):
+        unknown_keys(address, PICKUP_ADDRESS_KEYS, "/pickupAddress")
+        for key in ("firstName", "lastName"):
+            value = address.get(key)
+            if not isinstance(value, str) or not 1 <= len(value) <= 50:
+                problems.append((f"/pickupAddress/{key}", "must be a string of 1-50 characters"))
+        if not isinstance(address.get("address"), dict):
+            problems.append(("/pickupAddress", "Object has missing required properties: [address]"))
+        contact = address.get("contact")
+        if not isinstance(contact, list) or not 1 <= len(contact) <= 2:
+            problems.append(("/pickupAddress/contact", "Array must have between 1 and 2 items"))
+        else:
+            for index, entry in enumerate(contact):
+                path = f"/pickupAddress/contact/{index}"
+                if not isinstance(entry, dict):
+                    problems.append((path, "must be an object"))
+                    continue
+                unknown_keys(entry, CONTACT_KEYS, path)
+                if len(entry) != 1:
+                    problems.append((path, "Instance failed to match exactly one schema "
+                                           "(email or cellNumber)"))
+                if "cellNumber" in entry:
+                    cell = entry["cellNumber"]
+                    if not isinstance(cell, str) or not CELL_NUMBER.match(cell):
+                        problems.append((f"{path}/cellNumber",
+                                         'ECMA 262 regex "^\\d{10}$" does not match input string'))
+                if "email" in entry:
+                    email = entry["email"]
+                    if not isinstance(email, str) or len(email) > 50:
+                        problems.append((f"{path}/email", "must be a string of at most 50 characters"))
+    elif "pickupAddress" in body:
+        problems.append(("/pickupAddress", "must be an object"))
+
+    packages = body.get("packages")
+    if isinstance(packages, list):
+        for index, line in enumerate(packages):
+            path = f"/packages/{index}"
+            if not isinstance(line, dict):
+                problems.append((path, "must be an object"))
+                continue
+            unknown_keys(line, PACKAGE_KEYS, path)
+            if line.get("packageType") not in PACKAGE_TYPES:
+                problems.append((f"{path}/packageType",
+                                 f"Instance value ({json.dumps(line.get('packageType'))}) not found in enum"))
+            if not _is_int(line.get("packageCount")):
+                problems.append((f"{path}/packageCount", "Instance type does not match integer"))
+    elif "packages" in body:
+        problems.append(("/packages", "must be an array"))
+
+    location = body.get("pickupLocation")
+    if isinstance(location, dict):
+        unknown_keys(location, PICKUP_LOCATION_KEYS, "/pickupLocation")
+        if location.get("packageLocation") not in PACKAGE_LOCATIONS:
+            problems.append(("/pickupLocation/packageLocation",
+                             f"Instance value ({json.dumps(location.get('packageLocation'))}) not found in enum"))
+        if location.get("packageLocation") == "OTHER":
+            instructions = location.get("specialInstructions")
+            if not isinstance(instructions, str) or not instructions.strip():
+                problems.append(("/pickupLocation/specialInstructions",
+                                 "specialInstructions is required when packageLocation is OTHER"))
+    elif "pickupLocation" in body:
+        problems.append(("/pickupLocation", "must be an object"))
+
+    return problems
+
+
+def oas_validation_error(problems):
+    """A 400 body shaped like the one the live API returns."""
+    path, message = problems[0]
+    return {
+        "apiVersion": "/pickup/v3/",
+        "error": {
+            "code": "400",
+            "message": "OASValidation OpenAPI-Spec-Validation-Carrier-Pickup with resource "
+                       f"'oas://carrier-pickup.yaml': failed with reason: "
+                       f"'[ERROR - [Path '{path}'] {message}]'",
+            "errors": [
+                {"status": "400", "code": "OASValidation", "title": "OASValidation",
+                 "detail": f"[Path '{p}'] {m}", "source": {"parameter": p}}
+                for p, m in problems
+            ],
+        },
+    }
+
+
+def schedule_echo(body):
+    """`carrierPickupRequest` the way the live test environment echoes it:
+    names and address upper-cased, a ZIP+4 filled in, `{}` for a cell number
+    it did not keep, and one line per package type, zero counts included."""
+    address = body.get("pickupAddress", {})
+    postal = dict(address.get("address", {}))
+    for key in ("streetAddress", "secondaryAddress", "city", "state"):
+        if isinstance(postal.get(key), str):
+            postal[key] = postal[key].upper().replace("'", "")
+    postal.setdefault("ZIPPlus4", "0001")
+    contact = [{"email": entry["email"].upper()} if "email" in entry else {}
+               for entry in address.get("contact", [])]
+    counts = {line["packageType"]: line["packageCount"] for line in body.get("packages", [])}
+    echo_address = {"firstName": address.get("firstName", "").upper(),
+                    "lastName": address.get("lastName", "").upper()}
+    if address.get("firm"):
+        echo_address["firm"] = address["firm"].upper()
+    echo_address["address"] = postal
+    echo_address["contact"] = contact
+    return {
+        "pickupDate": body.get("pickupDate"),
+        "pickupAddress": echo_address,
+        "packages": [{"packageType": t, "packageCount": counts.get(t, 0)} for t in ECHO_PACKAGE_TYPES],
+        "estimatedWeight": body.get("estimatedWeight"),
+        "pickupLocation": body.get("pickupLocation"),
+    }
 
 
 SCHEDULE_ERROR_BODIES = {
@@ -236,7 +426,7 @@ class MockHandler(BaseHTTPRequestHandler):
                 "token_type": "Bearer",
                 "issued_at": int(time.time() * 1000),
                 "expires_in": 28799,
-                "scope": "pickup addresses",
+                "scope": "addresses carrier-pickup labels locations",
                 "status": "approved",
             },
         )
@@ -292,10 +482,6 @@ class MockHandler(BaseHTTPRequestHandler):
                         "ZIPPlus4": "2520",
                         "urbanization": None,
                     },
-                    "contact": [
-                        {"eMail": None},
-                        {"phone": None, "extension": None},
-                    ],
                 }
             },
         )
@@ -308,6 +494,11 @@ class MockHandler(BaseHTTPRequestHandler):
             return
 
         body = self._parsed_body()
+
+        problems = schedule_violations(body)
+        if problems:
+            self._send_json(400, oas_validation_error(problems))
+            return
 
         # Sleep to make the app's progress animation visible during manual QA.
         time.sleep(1.5)
@@ -329,7 +520,7 @@ class MockHandler(BaseHTTPRequestHandler):
             {
                 "confirmationNumber": confirmation_number,
                 "pickupDate": pickup_date,
-                "carrierPickupRequest": body,
+                "carrierPickupRequest": schedule_echo(body),
             },
         )
 

@@ -98,6 +98,36 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.contact, store.contact)
     }
 
+    func testLegacyMailboxDefaultLocationMigrates() {
+        defaults.set(Data(#"{"defaultLocation": "IN_AT_MAILBOX"}"#.utf8), forKey: "settings.v1")
+        XCTAssertEqual(SettingsStore(defaults: defaults).defaultLocation, .mailbox)
+    }
+
+    func testUnknownDefaultLocationFallsBackToFrontDoor() {
+        defaults.set(Data(#"{"defaultLocation": "SECURITY_DECK", "defaultWeight": 3}"#.utf8),
+                     forKey: "settings.v1")
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertEqual(store.defaultLocation, .frontDoor)
+        XCTAssertEqual(store.defaultWeight, 3, "the rest of the snapshot still loads")
+    }
+
+    func testLegacyPhoneOnlyContactStillProducesAValidRequest() throws {
+        // Written by v1.0: a phone, no email.
+        defaults.set(Data(#"""
+        {"contact": {"firstName": "Todd", "lastName": "Anglin", "phone": "5551234567"},
+         "address": {"streetAddress": "123 Main St", "city": "Springfield", "state": "IL", "ZIPCode": "62701"},
+         "defaultLocation": "SHIPPING_DOCK"}
+        """#.utf8), forKey: "settings.v1")
+        let store = SettingsStore(defaults: defaults)
+        let contact = try XCTUnwrap(store.contact)
+        let address = try XCTUnwrap(store.address)
+        XCTAssertEqual(contact.phone, "5551234567")
+        XCTAssertNil(contact.email)
+
+        let wire = PickupAddress(contact: contact, address: address)
+        XCTAssertEqual(wire.contact, [.cellNumber("5551234567")])
+    }
+
     func testClearResets() {
         let store = SettingsStore(defaults: defaults)
         store.defaultLocation = .mailbox
