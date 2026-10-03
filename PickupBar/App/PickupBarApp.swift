@@ -34,6 +34,11 @@ struct PickupBarApp: App {
                                                  city: "WASHINGTON", state: "DC", ZIPCode: "20260", ZIPPlus4: "0001")
             }
             keychain = store
+        } else if UITestSupport.isUnitTestHost {
+            let suite = UITestSupport.unitTestHostStorageName
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            settings = SettingsStore(defaults: UserDefaults(suiteName: suite) ?? .standard)
+            keychain = UITestCredentialStore(suiteName: suite)
         } else {
             settings = SettingsStore()
             keychain = KeychainStore()

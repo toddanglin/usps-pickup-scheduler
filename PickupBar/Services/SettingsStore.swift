@@ -13,6 +13,15 @@ final class SettingsStore: ObservableObject {
     @Published var defaultWeight: Double = 1 { didSet { persist() } }
     @Published var useTestEnvironment: Bool = false { didSet { persist() } }
     @Published var lastConfirmation: PickupConfirmation? { didSet { persist() } }
+    /// Pickups this app scheduled, newest first, at most `historyLimit`.
+    ///
+    /// The USPS Carrier Pickup API has no "list pickups" endpoint (only GET,
+    /// PUT and DELETE of one pickup by confirmation number), so this local
+    /// list is the only record there is. Pickups made on usps.com never
+    /// appear in it.
+    @Published private(set) var history: [PickupRecord] = [] { didSet { persist() } }
+
+    static let historyLimit = 200
 
     var isAddressConfigured: Bool { address != nil && contact != nil }
 
@@ -32,8 +41,38 @@ final class SettingsStore: ObservableObject {
             defaultWeight = snapshot.defaultWeight
             useTestEnvironment = snapshot.useTestEnvironment
             lastConfirmation = snapshot.lastConfirmation
+            history = snapshot.history
         }
         isLoading = false
+
+        // Settings written before the history existed still remember the last
+        // pickup: seed the history with it so that pickup is not lost.
+        if history.isEmpty, let last = lastConfirmation {
+            history = [PickupRecord(confirmationNumber: last.confirmationNumber,
+                                    pickupDate: last.pickupDate,
+                                    createdAt: Date(),
+                                    packages: [],
+                                    estimatedWeight: 0,
+                                    location: .frontDoor,
+                                    addressLine: PickupRecord.addressLine(address))]
+        }
+    }
+
+    /// Adds `record` at the top of the history, replacing any earlier record
+    /// with the same confirmation number, and drops the oldest beyond
+    /// `historyLimit`.
+    func addToHistory(_ record: PickupRecord) {
+        var updated = history.filter { $0.confirmationNumber != record.confirmationNumber }
+        updated.insert(record, at: 0)
+        if updated.count > Self.historyLimit {
+            updated.removeLast(updated.count - Self.historyLimit)
+        }
+        history = updated
+    }
+
+    /// Forgets a pickup locally. It stays scheduled with USPS.
+    func removeFromHistory(confirmationNumber: String) {
+        history.removeAll { $0.confirmationNumber == confirmationNumber }
     }
 
     func clear() {
@@ -46,6 +85,7 @@ final class SettingsStore: ObservableObject {
         defaultWeight = 1
         useTestEnvironment = false
         lastConfirmation = nil
+        history = []
         isLoading = false
         persist()
     }
@@ -60,7 +100,8 @@ final class SettingsStore: ObservableObject {
             dogPresent: dogPresent,
             defaultWeight: defaultWeight,
             useTestEnvironment: useTestEnvironment,
-            lastConfirmation: lastConfirmation
+            lastConfirmation: lastConfirmation,
+            history: history
         )
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: Self.storageKey)
@@ -80,6 +121,7 @@ final class SettingsStore: ObservableObject {
         var defaultWeight: Double
         var useTestEnvironment: Bool
         var lastConfirmation: PickupConfirmation?
+        var history: [PickupRecord]
 
         init(contact: PickupContact?,
              address: PostalAddress?,
@@ -88,7 +130,8 @@ final class SettingsStore: ObservableObject {
              dogPresent: Bool,
              defaultWeight: Double,
              useTestEnvironment: Bool,
-             lastConfirmation: PickupConfirmation?) {
+             lastConfirmation: PickupConfirmation?,
+             history: [PickupRecord]) {
             self.contact = contact
             self.address = address
             self.defaultLocation = defaultLocation
@@ -97,6 +140,7 @@ final class SettingsStore: ObservableObject {
             self.defaultWeight = defaultWeight
             self.useTestEnvironment = useTestEnvironment
             self.lastConfirmation = lastConfirmation
+            self.history = history
         }
 
         init(from decoder: Decoder) throws {
@@ -116,6 +160,10 @@ final class SettingsStore: ObservableObject {
                                                                forKey: .useTestEnvironment) ?? false
             lastConfirmation = try container.decodeIfPresent(PickupConfirmation.self,
                                                              forKey: .lastConfirmation)
+            // Absent in snapshots written before the history existed. A list
+            // that fails to decode is dropped rather than taking the saved
+            // address down with it.
+            history = (try? container.decodeIfPresent([PickupRecord].self, forKey: .history)) ?? []
         }
     }
 }

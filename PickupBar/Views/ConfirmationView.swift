@@ -46,8 +46,15 @@ struct ConfirmationView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            PrimaryButton("Schedule another pickup") { state.scheduleAnother() }
-                .accessibilityIdentifier("confirmation.another")
+            VStack(spacing: 6) {
+                PrimaryButton("Schedule another pickup") { state.scheduleAnother() }
+                    .accessibilityIdentifier("confirmation.another")
+                Button("View scheduled pickups") { state.showHistory() }
+                    .buttonStyle(.borderless)
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                    .accessibilityIdentifier("confirmation.history")
+            }
         }
         .padding(Style.outerPadding)
         .onAppear { didAppear = true }

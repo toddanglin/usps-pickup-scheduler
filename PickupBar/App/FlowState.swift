@@ -8,6 +8,8 @@ enum FlowState: Equatable {
     case scheduling
     case confirmed(PickupConfirmation)
     case failed(USPSError, retryable: Bool)
+    /// "Scheduled pickups", the local history.
+    case history
 }
 
 /// What the app currently believes about the stored USPS credentials.

@@ -12,6 +12,17 @@ enum UITestSupport {
         ProcessInfo.processInfo.environment["PICKUPBAR_UITEST"] == "1"
     }
 
+    /// True when the app is only the host process for `PickupBarTests`. The
+    /// unit tests build their own stores, so the host must not read the real
+    /// Keychain: a freshly built (differently signed) copy makes macOS show a
+    /// Keychain access prompt that blocks the test run until someone answers.
+    static var isUnitTestHost: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    /// Defaults suite and credential store used by the unit-test host.
+    static let unitTestHostStorageName = "com.toddanglin.PickupBar.unittest-host"
+
     /// Start with credentials and a verified address already saved.
     static var isSeeded: Bool {
         isActive && ProcessInfo.processInfo.environment["PICKUPBAR_UITEST_SEED"] == "1"

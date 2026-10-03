@@ -21,14 +21,19 @@ using your own USPS developer credentials — no browser, no re-login.
 - Next-6-days date picker that skips Sundays and USPS holidays, and honors
   the 2 AM Central same-day cutoff
 - Package counts per service type (Ground Advantage, Priority Mail, Priority
-  Mail Express, International, Returns, Other), estimated weight, special
-  instructions, and a "dog on premises" flag
+  Mail Express, International, Returns, Other) — type a number or use the
+  stepper — plus estimated weight, special instructions, and a "dog on
+  premises" flag
 - Pickup locations: Front Door, Back Door, Side Door, Knock on Door / Ring
   Bell, Mail Room, Office, Porch, Reception, Mailbox, or Other (Other needs
   special instructions)
 - Required hazmat attestation before scheduling
 - Progress indicator and a confirmation screen with a copyable confirmation
   number
+- "Scheduled pickups": a history of the pickups you scheduled with PickupBar,
+  split into upcoming and past, with copyable confirmation numbers. The USPS
+  API has no way to list pickups, so this is PickupBar's own local record;
+  pickups made on usps.com do not appear
 - Friendly, specific error messages with a "Copy details" button for bug
   reports
 - Menu bar badge and a notification if your credentials stop working
@@ -112,6 +117,9 @@ Then drag `PickupBar.app` to `/Applications`.
 - Set your package counts by service type, pickup location, weight, and any
   special instructions, then confirm the hazmat attestation
 - Tap **Schedule Pickup** and get a confirmation number you can copy
+- Open **Scheduled pickups** (the clock in the footer, "View scheduled
+  pickups" on the confirmation, or the "Last pickup" line on the form) to see
+  every pickup PickupBar has scheduled
 
 **Settings tabs:**
 - **Account** — masked credentials, connection status, replace/remove, and
@@ -186,9 +194,9 @@ The design spec and implementation plans for this project live in
 ### UI test
 
 `make uitest` runs an XCUITest that opens the real menu bar popover, walks
-onboarding → address → form → confirmation → "schedule another" against the
-mock server, opens Settings, and saves a screenshot of every screen to
-`.build/uiscreens` (override with `UISCREENS=...`). It must be run from a normal
+onboarding → address → form → confirmation → scheduled pickups → a fresh form
+against the mock server, opens Settings, and saves a screenshot of every screen to
+`.build/uitest-screens` (override with `UISCREENS=...`). It must be run from a normal
 terminal, not from a sandboxed shell, because macOS UI automation needs to
 attach to the app. The app is launched with `PICKUPBAR_UITEST=1`, which swaps
 in a throwaway defaults suite and credential store so your real settings are
@@ -199,7 +207,10 @@ permission prompt for PickupBar; either answer is fine.
 
 Not supported in v1:
 
-- Viewing or cancelling existing pickups
+- Cancelling or changing a pickup. PickupBar lists the pickups it scheduled,
+  but that history is local to this Mac: the USPS API cannot list pickups, so
+  pickups made on usps.com or elsewhere never show up, and removing one from
+  the list does not cancel it
 - Multiple saved addresses
 - Notarized release builds
 

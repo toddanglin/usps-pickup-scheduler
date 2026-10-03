@@ -101,6 +101,7 @@ enum FlowState: Equatable {
   case scheduling
   case confirmed(PickupConfirmation)
   case failed(USPSError, retryable: Bool)
+  case history          // "Scheduled pickups" (added after v1)
 }
 ```
 
@@ -115,6 +116,9 @@ Transitions:
 - Confirmation "Schedule another pickup" → `form` (form keeps defaults, resets
   counts to defaults, reselects first day).
 - Error "Try again" → `form` with previous draft retained.
+- Footer clock / confirmation "View scheduled pickups" / form "Last pickup"
+  caption → `history` (only from `form` or `confirmed`); back → `form` (a fresh
+  draft when coming from a confirmation).
 - Credential invalid detected anywhere → `needsCredentials` + `needsAttention = true`.
 
 ### 4.2 Models (all `Codable`, `Sendable`)
@@ -312,12 +316,14 @@ style groups, SF Symbols, system fonts. Footer on every screen: gear button
   - Header "Schedule a pickup" + subtitle with address line.
   - Day chips (6) — `PickupDateCalculator.availableDates`.
   - Location `Picker` (menu) + instructions `TextField` (required for Other: a red caption "Instructions are required when the location is Other" shows and Schedule stays disabled until they are filled in).
-  - Package rows: 6 types each with `Stepper` 0…50, showing count. Total shown.
+  - Package rows: 6 types each with an editable count field (digits only, 0…50, empty = 0) and a `Stepper` 0…50, kept in sync. Total shown.
   - Weight `TextField` (lb) with `.decimalPad`-like formatting, default from settings.
   - `Toggle` "These packages contain no hazardous materials" — required.
   - Primary button "Schedule Pickup" enabled iff total ≥ 1, weight > 0, hazmat toggled on.
 - **SchedulingView**: animated envelope (subtle pulse/float) + `ProgressView` + "Scheduling your pickup…".
 - **ConfirmationView**: green checkmark, "Pickup scheduled", date in long form, confirmation number in monospaced large text, "Copy" button, primary "Schedule another pickup".
+- **PickupHistoryView** ("Scheduled pickups", added after v1): back chevron, "Upcoming" and "Past" sections (America/Chicago day), each row with date, package summary, monospaced confirmation number, Copy, and a menu to copy or remove from the list (local only). Backed by `SettingsStore.history` (`[PickupRecord]`, newest first, capped at 200, seeded from `lastConfirmation` for older settings). The USPS API only offers GET/PUT/DELETE by confirmation number — there is no list endpoint — so pickups made outside PickupBar are not shown.
+- Popover sizing: a `MenuBarExtra(.window)` takes the content's ideal height. Screens that may scroll (form, history) use `FittingScrollView`, which measures the content's natural height and only switches to a fixed-height `ScrollView` above the limit; never a bare `ScrollView` (collapses) or `.frame(maxHeight:)` (stretches the window).
 - **ErrorView**: warning icon, title/message/hint, "Copy details", primary "Try again" (if retryable) or "Open Settings".
 - **SettingsView** (`Settings` scene, `TabView`): Account (masked key, status pill, Replace/Remove, TEM toggle), Address (same form as AddressSetupView), Defaults (location, instructions, dog present, weight), General (launch at login, version, GitHub link).
 
@@ -368,6 +374,7 @@ docs/superpowers/{specs,plans}
 
 ## 7. Out of scope for v1
 
-Viewing/cancelling existing pickups, multiple addresses, label purchase,
+Cancelling/modifying pickups and fetching their status from USPS (the local
+"Scheduled pickups" history was added after v1), multiple addresses, label purchase,
 auto-update, notarized release builds (README documents `make build` and a
 manual Gatekeeper note).

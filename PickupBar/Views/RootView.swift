@@ -30,6 +30,8 @@ struct RootView: View {
             ConfirmationView(confirmation: confirmation)
         case .failed(let error, let retryable):
             ErrorView(error: error, retryable: retryable)
+        case .history:
+            PickupHistoryView()
         }
     }
 }

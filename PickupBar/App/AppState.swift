@@ -189,6 +189,11 @@ final class AppState: ObservableObject {
                 try await self.api.schedulePickup(request, token: token)
             }
             settings.lastConfirmation = confirmation
+            // USPS may move the pickup to another day, so the record keeps the
+            // confirmed date rather than the requested one.
+            settings.addToHistory(PickupRecord(confirmation: confirmation,
+                                               request: request,
+                                               createdAt: now()))
             flow = .confirmed(confirmation)
         } catch let error as USPSError {
             if error == .invalidCredentials {
@@ -205,6 +210,30 @@ final class AppState: ObservableObject {
     /// Confirmation screen → a fresh form.
     func scheduleAnother() {
         draft = PickupDraft.fromDefaults(settings, now: now())
+        flow = .form
+    }
+
+    // MARK: - History
+
+    /// Form or confirmation screen → "Scheduled pickups". Anywhere else (say,
+    /// mid-request) it does nothing.
+    func showHistory() {
+        switch flow {
+        case .form:
+            flow = .history
+        case .confirmed:
+            // That draft was submitted; coming back should start a new one.
+            draft = PickupDraft.fromDefaults(settings, now: now())
+            flow = .history
+        default:
+            break
+        }
+    }
+
+    /// "Scheduled pickups" → the form (never back to a confirmation, which is
+    /// done with).
+    func closeHistory() {
+        guard flow == .history else { return }
         flow = .form
     }
 

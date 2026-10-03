@@ -4,6 +4,12 @@ import SwiftUI
 /// active-environment note in the middle, Quit on the right.
 struct FooterBar: View {
     @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var state: AppState
+
+    /// History only makes sense once the app can schedule at all.
+    private var showsHistoryButton: Bool {
+        settings.isAddressConfigured && state.credentialKeyPrefix != nil
+    }
 
     /// The host actually in use, whenever it is not production USPS — the TEM
     /// toggle is only one of the ways that happens (`PICKUPBAR_BASE_URL` points
@@ -14,6 +20,13 @@ struct FooterBar: View {
         guard let host = url.host, host != BaseURL.production.host else { return nil }
         if let port = url.port { return "\(host):\(port)" }
         return host
+    }
+
+    private var canShowHistory: Bool {
+        switch state.flow {
+        case .form, .confirmed: return true
+        default: return false
+        }
     }
 
     var body: some View {
@@ -38,6 +51,19 @@ struct FooterBar: View {
                         .truncationMode(.middle)
                         .help("PickupBar is talking to \(host) instead of production USPS.")
                     Spacer(minLength: 0)
+                }
+
+                if showsHistoryButton {
+                    Button {
+                        state.showHistory()
+                    } label: {
+                        Label("Scheduled pickups", systemImage: "clock.arrow.circlepath")
+                            .labelStyle(.iconOnly)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Scheduled pickups")
+                    .disabled(!canShowHistory)
+                    .accessibilityIdentifier("footer.history")
                 }
 
                 Button("Quit") {

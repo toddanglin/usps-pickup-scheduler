@@ -3,30 +3,19 @@ import SwiftUI
 /// The main screen: pick a day, say where the packages are, count them, submit.
 ///
 /// Sizing matters here: a `MenuBarExtra` window takes its height from the
-/// content's ideal size, and a bare `ScrollView` has almost none, so a form
-/// wrapped only in a `ScrollView` collapses the popover to just the footer.
-/// The form is therefore shown at its natural height, and only falls back to a
-/// fixed-height scrolling version when it cannot fit (very large text sizes or
-/// a short screen).
+/// content's ideal size. A bare `ScrollView` has almost none (the popover
+/// collapses to the footer), and a `.frame(maxHeight:)` is flexible (the popover
+/// grows to that height, mostly empty). `FittingScrollView` shows the form at
+/// its natural height and only scrolls, at a fixed height, when it cannot fit
+/// (very large text sizes or a short screen).
 struct PickupFormView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: SettingsStore
 
-    /// Tallest the form may be before it scrolls: most of the visible screen.
-    private var maxHeight: CGFloat {
-        let screen = NSScreen.main?.visibleFrame.height ?? 800
-        return max(360, screen - 120)
-    }
-
     var body: some View {
-        ViewThatFits(in: .vertical) {
+        FittingScrollView(maxHeight: PopoverMetrics.maxHeight) {
             content
-            ScrollView {
-                content
-            }
-            .frame(height: maxHeight)
         }
-        .frame(maxHeight: maxHeight)
     }
 
     private var content: some View {
@@ -60,10 +49,22 @@ struct PickupFormView: View {
                     .truncationMode(.middle)
             }
             if let last = settings.lastConfirmation {
-                Text(Self.lastPickupCaption(last))
+                Button {
+                    state.showHistory()
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(Self.lastPickupCaption(last))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .imageScale(.small)
+                    }
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Scheduled pickups")
+                .accessibilityIdentifier("form.lastPickup")
             }
         }
     }
@@ -117,6 +118,7 @@ struct PickupFormView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .accessibilityIdentifier("form.total")
             }
             Card {
                 VStack(spacing: 2) {

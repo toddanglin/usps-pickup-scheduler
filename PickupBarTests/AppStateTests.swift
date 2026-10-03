@@ -499,6 +499,77 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(fake.scheduleCallCount, 0)
     }
 
+    // MARK: - History
+
+    func testScheduleSuccessAddsAHistoryRecord() async throws {
+        // USPS confirms a different day than the one requested.
+        fake.scheduleResult = .success(PickupConfirmation(confirmationNumber: "WTC42",
+                                                          pickupDate: "2026-09-21"))
+        let state = makeState(credentials: true, address: true)
+        state.start()
+        fillDraft(state)
+        state.draft.counts[.groundAdvantage] = 1
+        state.draft.location = .porch
+        await state.schedule()
+
+        XCTAssertEqual(settings.history.count, 1)
+        let record = try XCTUnwrap(settings.history.first)
+        XCTAssertEqual(record.confirmationNumber, "WTC42")
+        XCTAssertEqual(record.pickupDate, "2026-09-21")
+        XCTAssertEqual(fake.lastScheduleRequest?.pickupDate, "2026-09-18")
+        XCTAssertEqual(record.packages, [PackageLine(packageType: .groundAdvantage, packageCount: 1),
+                                         PackageLine(packageType: .priorityMail, packageCount: 2)])
+        XCTAssertEqual(record.totalPackages, 3)
+        XCTAssertEqual(record.estimatedWeight, 3)
+        XCTAssertEqual(record.location, .porch)
+        XCTAssertEqual(record.addressLine, "4120 Bingham Ave, Saint Louis MO")
+        XCTAssertEqual(record.createdAt, Self.fixedNow)
+    }
+
+    func testFailedScheduleAddsNoHistory() async {
+        fake.scheduleResult = .failure(USPSError.rateLimited)
+        let state = makeState(credentials: true, address: true)
+        state.start()
+        fillDraft(state)
+        await state.schedule()
+        XCTAssertEqual(settings.history, [])
+    }
+
+    func testShowAndCloseHistoryFromTheForm() {
+        let state = makeState(credentials: true, address: true)
+        state.start()
+        state.draft.counts[.returns] = 4
+        state.showHistory()
+        XCTAssertEqual(state.flow, .history)
+        state.closeHistory()
+        XCTAssertEqual(state.flow, .form)
+        // The draft in progress survives the detour.
+        XCTAssertEqual(state.draft.counts[.returns], 4)
+    }
+
+    func testShowHistoryFromConfirmationThenBackGivesAFreshForm() async {
+        let state = makeState(credentials: true, address: true)
+        state.start()
+        fillDraft(state)
+        await state.schedule()
+        guard case .confirmed = state.flow else { return XCTFail("expected confirmed, got \(state.flow)") }
+        state.showHistory()
+        XCTAssertEqual(state.flow, .history)
+        state.closeHistory()
+        XCTAssertEqual(state.flow, .form)
+        XCTAssertEqual(state.draft.totalPackages, 0)
+    }
+
+    func testShowHistoryIgnoredOutsideFormAndConfirmation() {
+        let state = makeState()
+        state.start()
+        XCTAssertEqual(state.flow, .needsCredentials)
+        state.showHistory()
+        XCTAssertEqual(state.flow, .needsCredentials)
+        state.closeHistory()
+        XCTAssertEqual(state.flow, .needsCredentials)
+    }
+
     // MARK: - 13. schedule another
 
     func testScheduleAnotherResetsDraft() async {

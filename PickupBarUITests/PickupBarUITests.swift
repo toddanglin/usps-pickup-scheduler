@@ -88,9 +88,42 @@ final class PickupBarUITests: XCTestCase {
         screenshot("10-form-first-launch")
         XCTAssertTrue(schedule.isHittable, "Schedule Pickup exists but is not on screen")
         XCTAssertGreaterThan(schedule.frame.height, 10)
+        assertPopoverFitsForm(schedule)
+
+        // The history is reachable from the footer, and empty for a new user.
+        let history = app.buttons["footer.history"]
+        require(history, "footer history button")
+        history.click()
+        require(app.descendants(matching: .any)["history.empty"], "empty history")
+        screenshot("11-history-empty")
+        let back = app.buttons["history.back"]
+        require(back, "history back button")
+        back.click()
+        require(schedule, "form after history")
+    }
+
+    /// The popover is exactly as tall as the form plus the footer: neither
+    /// collapsed to the footer, nor stretched to the screen height with empty
+    /// space under the form. Regression test for both sizing bugs.
+    private func assertPopoverFitsForm(_ schedule: XCUIElement,
+                                       file: StaticString = #filePath, line: UInt = #line) {
         let popover = app.dialogs.firstMatch
-        XCTAssertGreaterThan(popover.frame.height, 400,
-                             "The popover collapsed: height \(popover.frame.height)")
+        let height = popover.frame.height
+        mark("popover height \(height); schedule maxY \(schedule.frame.maxY); "
+             + "quit minY \(app.buttons["footer.quit"].frame.minY)")
+        XCTAssertGreaterThan(height, 400, "The popover collapsed: height \(height)",
+                             file: file, line: line)
+        XCTAssertLessThan(height, 760, "The popover is taller than the form: height \(height)",
+                          file: file, line: line)
+        let quit = app.buttons["footer.quit"]
+        if quit.exists {
+            let gap = quit.frame.minY - schedule.frame.maxY
+            XCTAssertLessThan(gap, 60,
+                              "Empty space between the form and the footer: \(gap) pt",
+                              file: file, line: line)
+        } else {
+            XCTFail("footer.quit missing", file: file, line: line)
+        }
     }
 
     // MARK: - The walk
@@ -148,6 +181,15 @@ final class PickupBarUITests: XCTestCase {
         incrementStepper(identifier: "form.stepper.PRIORITY_MAIL", times: 2)
         mark("stepper incremented")
 
+        // Counts can also be typed.
+        let groundCount = app.textFields["form.count.USPS_GROUND_ADVANTAGE"]
+        type("3\n", into: groundCount)
+        let total = app.staticTexts["form.total"]
+        XCTAssertTrue(total.waitForExistence(timeout: 5), "Total label missing. Tree:\n\(popoverDescription)")
+        let totalText = Self.staticText(total)
+        mark("total = \(totalText)")
+        XCTAssertEqual(totalText, "5 total", "Typing 3 Ground Advantage next to 2 Priority Mail")
+
         let weight = app.textFields["form.weight"]
         XCTAssertTrue(weight.exists, "Weight field missing. Tree:\n\(popoverDescription)")
         weight.click()
@@ -181,12 +223,30 @@ final class PickupBarUITests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("WTC"),
                       "Confirmation number \"\(text)\" does not start with WTC.")
 
-        app.buttons["confirmation.another"].click()
+        XCTAssertTrue(app.buttons["confirmation.another"].exists,
+                      "Schedule another pickup button missing")
 
-        // 5. Back to a fresh form ---------------------------------------
+        // 5. History -----------------------------------------------------
+        let historyLink = app.buttons["confirmation.history"]
+        require(historyLink, "confirmation history link")
+        historyLink.click()
+        let row = app.staticTexts["history.number.\(text)"]
+        require(row, "history row \(text)")
+        XCTAssertTrue(app.buttons["history.copy.\(text)"].exists, "History copy button missing")
+        mark("history visible")
+        screenshot("08-history")
+        app.buttons["history.back"].click()
+
+        // 6. Back to a fresh form ---------------------------------------
+        // Leaving the history after a confirmation is the same as "Schedule
+        // another pickup": a fresh form.
         require(schedule, "form-again")
         mark("form again")
         screenshot("06-form-again")
+        XCTAssertEqual(Self.staticText(app.staticTexts["form.total"]), "0 total",
+                       "The form after a confirmation should start fresh")
+        XCTAssertLessThan(popover.frame.height, 760,
+                          "The popover is taller than the form: height \(popover.frame.height)")
 
         // 6. Settings ----------------------------------------------------
         let settingsButton = app.buttons["footer.settings"]
@@ -250,29 +310,16 @@ final class PickupBarUITests: XCTestCase {
         field.typeText(text)
     }
 
-    /// Clicks a `Stepper`'s increment arrow `times` times.
-    ///
-    /// `PackageRow` combines its children into one accessibility element, so the
-    /// whole row surfaces as a single `Stepper` and `incrementArrows` is empty.
-    /// When that happens, click the arrows where they are drawn: at the right
-    /// edge of the row, upper arrow in the top half.
+    /// Clicks a `Stepper`'s increment arrow `times` times. `PackageRow` keeps
+    /// the stepper its own accessibility element, so its arrows are reachable.
     private func incrementStepper(identifier: String, times: Int) {
-        let stepper = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        let stepper = app.steppers[identifier]
         guard require(stepper, "stepper-\(identifier)", timeout: 5) else { return }
-
         let increment = stepper.incrementArrows.firstMatch
-        // Normalized offsets of the up arrow, best guess first.
-        let offsets = [CGVector(dx: 0.965, dy: 0.30), CGVector(dx: 0.94, dy: 0.25)]
+        guard require(increment, "increment arrow of \(identifier)", timeout: 5) else { return }
 
-        for step in 1...times {
-            if increment.exists {
-                increment.click()
-            } else {
-                for offset in offsets {
-                    stepper.coordinate(withNormalizedOffset: offset).click()
-                    if Self.stepperValue(stepper) == step { break }
-                }
-            }
+        for _ in 1...times {
+            increment.click()
             mark("stepper \(identifier) = \(Self.stepperValue(stepper).map(String.init) ?? "?")")
         }
 
@@ -285,7 +332,13 @@ final class PickupBarUITests: XCTestCase {
         }
     }
 
-    /// A combined `Stepper` reports its count through the accessibility value.
+    /// A SwiftUI `Text` reports its string as the accessibility *value*;
+    /// `label` is usually empty.
+    private static func staticText(_ element: XCUIElement) -> String {
+        (element.value as? String).flatMap { $0.isEmpty ? nil : $0 } ?? element.label
+    }
+
+    /// A `Stepper` reports its count through the accessibility value.
     private static func stepperValue(_ stepper: XCUIElement) -> Int? {
         switch stepper.value {
         case let text as String: return Int(text)
