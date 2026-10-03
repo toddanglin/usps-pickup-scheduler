@@ -11,6 +11,11 @@ enum UITestSupport {
     static var isActive: Bool {
         ProcessInfo.processInfo.environment["PICKUPBAR_UITEST"] == "1"
     }
+
+    /// Start with credentials and a verified address already saved.
+    static var isSeeded: Bool {
+        isActive && ProcessInfo.processInfo.environment["PICKUPBAR_UITEST_SEED"] == "1"
+    }
 }
 
 /// Credential storage for UI tests.

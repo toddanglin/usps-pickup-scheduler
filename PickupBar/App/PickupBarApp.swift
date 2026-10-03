@@ -24,6 +24,15 @@ struct PickupBarApp: App {
             settings.clear()
             let store = UITestCredentialStore(suiteName: suite)
             try? store.deleteCredentials()
+            // `PICKUPBAR_UITEST_SEED=1` starts as an already-configured user, so
+            // the pickup form is the very first screen the popover shows.
+            if UITestSupport.isSeeded {
+                try? store.saveCredentials(id: "demo", secret: "demo")
+                settings.contact = PickupContact(firstName: "Test", lastName: "User", firm: nil,
+                                                 phone: "2025550123", email: "test@example.com")
+                settings.address = PostalAddress(streetAddress: "475 LENFANT PLZ SW", secondaryAddress: nil,
+                                                 city: "WASHINGTON", state: "DC", ZIPCode: "20260", ZIPPlus4: "0001")
+            }
             keychain = store
         } else {
             settings = SettingsStore()

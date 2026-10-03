@@ -58,6 +58,10 @@ final class PickupBarUITests: XCTestCase {
             "PICKUPBAR_UITEST": "1",
             "PICKUPBAR_BASE_URL": "http://127.0.0.1:\(port)"
         ]
+        // Tests named "...ConfiguredUser" start with credentials and an address saved.
+        if name.contains("ConfiguredUser") {
+            app.launchEnvironment["PICKUPBAR_UITEST_SEED"] = "1"
+        }
         app.launch()
     }
 
@@ -70,6 +74,23 @@ final class PickupBarUITests: XCTestCase {
             mockServer.waitUntilExit()
         }
         mockServer = nil
+    }
+
+    // MARK: - Configured user
+
+    /// A user who already saved credentials and an address sees the pickup form
+    /// as the first screen. Regression test: the form's ScrollView once gave the
+    /// popover no height, so only the footer was visible.
+    func testFormIsFirstScreenForConfiguredUser() throws {
+        openPopover()
+        let schedule = app.buttons["form.schedule"]
+        require(schedule, "form as first screen")
+        screenshot("10-form-first-launch")
+        XCTAssertTrue(schedule.isHittable, "Schedule Pickup exists but is not on screen")
+        XCTAssertGreaterThan(schedule.frame.height, 10)
+        let popover = app.dialogs.firstMatch
+        XCTAssertGreaterThan(popover.frame.height, 400,
+                             "The popover collapsed: height \(popover.frame.height)")
     }
 
     // MARK: - The walk
@@ -206,7 +227,8 @@ final class PickupBarUITests: XCTestCase {
 
         for candidate in candidates where candidate.waitForExistence(timeout: 5) {
             candidate.click()
-            if app.textFields["onboarding.key"].waitForExistence(timeout: 5) { return }
+            // Any popover counts: a configured user lands on the form, not onboarding.
+            if app.dialogs.firstMatch.waitForExistence(timeout: 5) { return }
             // The click may have toggled the popover shut; try the next spelling.
         }
 

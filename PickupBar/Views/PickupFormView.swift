@@ -1,18 +1,32 @@
 import SwiftUI
 
 /// The main screen: pick a day, say where the packages are, count them, submit.
-/// The content normally fits without scrolling; the `ScrollView` is only there
-/// for very large text sizes.
+///
+/// Sizing matters here: a `MenuBarExtra` window takes its height from the
+/// content's ideal size, and a bare `ScrollView` has almost none, so a form
+/// wrapped only in a `ScrollView` collapses the popover to just the footer.
+/// The form is therefore shown at its natural height, and only falls back to a
+/// fixed-height scrolling version when it cannot fit (very large text sizes or
+/// a short screen).
 struct PickupFormView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: SettingsStore
 
+    /// Tallest the form may be before it scrolls: most of the visible screen.
+    private var maxHeight: CGFloat {
+        let screen = NSScreen.main?.visibleFrame.height ?? 800
+        return max(360, screen - 120)
+    }
+
     var body: some View {
-        ScrollView {
+        ViewThatFits(in: .vertical) {
             content
+            ScrollView {
+                content
+            }
+            .frame(height: maxHeight)
         }
-        .frame(maxHeight: 600)
-        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: maxHeight)
     }
 
     private var content: some View {
