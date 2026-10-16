@@ -5,7 +5,7 @@ final class USPSErrorTests: XCTestCase {
     func testOfflineCopy() {
         let error = USPSError.offline
         XCTAssertEqual(error.title, "You're offline")
-        XCTAssertEqual(error.message, "Pickup couldn't reach USPS.")
+        XCTAssertEqual(error.message, "Couldn't reach USPS.")
         XCTAssertEqual(error.hint, "Check your connection and try again.")
     }
 
@@ -38,7 +38,7 @@ final class USPSErrorTests: XCTestCase {
     func testDecodingCopy() {
         let error = USPSError.decoding("keyNotFound")
         XCTAssertEqual(error.title, "Something unexpected happened")
-        XCTAssertEqual(error.message, "Pickup couldn't read the USPS response.")
+        XCTAssertEqual(error.message, "The USPS response couldn't be read.")
         XCTAssertEqual(error.hint,
                        "The pickup may still have been scheduled. Check usps.com before scheduling again.")
         XCTAssertFalse(error.isRetryable)
@@ -84,7 +84,7 @@ final class USPSErrorTests: XCTestCase {
 
     func testTechnicalDetailsIncludeStatusAndBody() {
         let details = USPSError.unexpected(status: 503, body: "<html>down</html>").technicalDetails
-        XCTAssertTrue(details.contains("Pickup"))
+        XCTAssertTrue(details.hasPrefix("Pickup unexpected"))
         XCTAssertTrue(details.contains("unexpected"))
         XCTAssertTrue(details.contains("503"))
         XCTAssertTrue(details.contains("<html>down</html>"))

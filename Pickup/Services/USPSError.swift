@@ -50,7 +50,7 @@ extension USPSError {
     var message: String {
         switch self {
         case .offline:
-            return "Pickup couldn't reach USPS."
+            return "Couldn't reach USPS."
         case .invalidCredentials:
             return "The Consumer Key or Secret is wrong, expired, or was revoked."
         case .forbidden:
@@ -72,7 +72,7 @@ extension USPSError {
             // the only human-readable description we have.
             return status == 0 ? body : "USPS returned status \(status)."
         case .decoding:
-            return "Pickup couldn't read the USPS response."
+            return "The USPS response couldn't be read."
         }
     }
 

@@ -35,7 +35,7 @@ struct PickupHistoryView: View {
                 }
             }
 
-            Text("Only pickups scheduled with Pickup are listed. "
+            Text("Only pickups scheduled from this app are listed. "
                  + "USPS doesn't provide a way to list pickups made elsewhere.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -114,7 +114,7 @@ struct PickupHistoryView: View {
                 .foregroundStyle(.secondary)
             Text("No pickups yet")
                 .font(.callout.weight(.medium))
-            Text("Pickups you schedule with Pickup appear here.")
+            Text("Pickups you schedule here appear in this list.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

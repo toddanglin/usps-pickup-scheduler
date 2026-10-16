@@ -20,7 +20,7 @@ final class UserNotifier: Notifying, @unchecked Sendable {
     }
 
     func notifyCredentialsNeeded() {
-        post(title: "Pickup needs your USPS credentials",
+        post(title: "Pickup: USPS credentials need attention",
              body: "Your Consumer Key or Secret was rejected. Open Pickup to update it.",
              identifier: "credentials-needed")
     }

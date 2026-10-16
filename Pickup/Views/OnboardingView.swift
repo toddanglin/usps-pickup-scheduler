@@ -67,7 +67,7 @@ struct OnboardingView: View {
                 .background(Circle().fill(Color.accentColor))
             Text("Connect your USPS account")
                 .font(.headline)
-            Text("Pickup schedules carrier pickups through the USPS API.")
+            Text("Pickup schedules USPS carrier pickups through the official USPS API.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
