@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/icon.png" width="128" height="128" alt="Pickup app icon: a white envelope on a blue rounded square">
+</p>
+
 # Pickup
 
 [![CI](https://github.com/toddanglin/usps-pickup-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/toddanglin/usps-pickup-scheduler/actions/workflows/ci.yml)
