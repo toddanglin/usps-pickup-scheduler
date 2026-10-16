@@ -48,7 +48,7 @@ struct GeneralSettingsTab: View {
             Section {
                 LabeledContent("Version", value: version)
                 Link("PickupBar on GitHub",
-                     destination: URL(string: "https://github.com/toddanglin/macos-usps-utility")!)
+                     destination: URL(string: "https://github.com/toddanglin/usps-pickup-scheduler")!)
             }
 
             Section {

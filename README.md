@@ -1,8 +1,8 @@
 # PickupBar
 
-[![CI](https://github.com/toddanglin/macos-usps-utility/actions/workflows/ci.yml/badge.svg)](https://github.com/toddanglin/macos-usps-utility/actions/workflows/ci.yml)
+[![CI](https://github.com/toddanglin/usps-pickup-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/toddanglin/usps-pickup-scheduler/actions/workflows/ci.yml)
 
-Schedule a USPS carrier pickup from your Mac's menu bar in a few clicks.
+A simple and easy-to-use macOS menu bar utility for quickly scheduling USPS pickups.
 
 usps.com makes you re-login and re-enter your address practically every time
 you want a package picked up. PickupBar lives in your menu bar, remembers your
