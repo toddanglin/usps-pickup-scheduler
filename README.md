@@ -1,5 +1,7 @@
 # PickupBar
 
+[![CI](https://github.com/toddanglin/macos-usps-utility/actions/workflows/ci.yml/badge.svg)](https://github.com/toddanglin/macos-usps-utility/actions/workflows/ci.yml)
+
 Schedule a USPS carrier pickup from your Mac's menu bar in a few clicks.
 
 usps.com makes you re-login and re-enter your address practically every time
@@ -7,11 +9,14 @@ you want a package picked up. PickupBar lives in your menu bar, remembers your
 verified pickup address, and schedules a pickup against the official USPS API
 using your own USPS developer credentials — no browser, no re-login.
 
+**Status:** v1.0 — in daily use by the author; API coverage verified against
+the USPS test environment.
+
 ## Screenshots
 
-| Onboarding | Schedule a pickup | Confirmation |
-|---|---|---|
-| ![Onboarding](docs/images/01-onboarding.png) | ![Pickup form](docs/images/03-form.png) | ![Confirmation](docs/images/05-confirmation.png) |
+| Onboarding | Schedule a pickup | Confirmation | Scheduled pickups |
+|---|---|---|---|
+| ![Onboarding](docs/images/01-onboarding.png) | ![Pickup form](docs/images/03-form.png) | ![Confirmation](docs/images/05-confirmation.png) | ![Scheduled pickups](docs/images/08-history.png) |
 
 ## Features
 
@@ -27,7 +32,8 @@ using your own USPS developer credentials — no browser, no re-login.
 - Pickup locations: Front Door, Back Door, Side Door, Knock on Door / Ring
   Bell, Mail Room, Office, Porch, Reception, Mailbox, or Other (Other needs
   special instructions)
-- Required hazmat attestation before scheduling
+- Required hazmat attestation before scheduling, with a link to USPS
+  Publication 52
 - Progress indicator and a confirmation screen with a copyable confirmation
   number
 - "Scheduled pickups": a history of the pickups you scheduled with PickupBar,
@@ -66,11 +72,13 @@ no telemetry or analytics anywhere.
 2. Click "Add App" to register a new application.
 3. Copy the app's **Consumer Key** and **Consumer Secret** — you'll paste
    both into PickupBar's onboarding screen.
-4. **Add the Carrier Pickup API product to the app.** This step is easy to
+4. **Add the Carrier Pickup API product to the app** — PickupBar needs the
+   Carrier Pickup product (OAuth scope `carrier-pickup`). This step is easy to
    miss: a brand-new app is created with only **Default Access**, which does
    *not* include Carrier Pickup. Open the app in the portal and add the
-   **Carrier Pickup** API product (OAuth scope `carrier-pickup`) — or ask USPS API Support to
-   enable it if the portal won't let you.
+   **Carrier Pickup** API product (OAuth scope `carrier-pickup`) — or, if the portal won't let you, ask USPS
+   to enable it through the API service-request form at
+   <https://emailus.usps.com/s/usps-APIs>.
 
    Without it the credentials still work (the token call succeeds), but every
    pickup call comes back `401 Insufficient OAuth scope` and PickupBar shows
@@ -83,8 +91,8 @@ one.
 
 ## Install / build
 
-**Requirements:** macOS 14+, Xcode 15+ (this repo is built and tested with
-Xcode 26). [XcodeGen](https://github.com/yonaskolb/XcodeGen) generates the
+**Requirements:** macOS 14+, Xcode 16+ (this repo is built and tested with
+Xcode 26; CI uses Xcode 16). [XcodeGen](https://github.com/yonaskolb/XcodeGen) generates the
 Xcode project: `brew install xcodegen`.
 
 ```sh
@@ -136,6 +144,11 @@ Then drag `PickupBar.app` to `/Applications`.
   says it was already cancelled, PickupBar just marks it cancelled
 - Past and cancelled pickups can only be copied or removed from the list
 
+**What PickupBar does not check for you:** the hazmat checkbox is only a
+reminder — the USPS API has no hazmat, terms-acceptance, or business-address
+fields, so those acknowledgements are your responsibility exactly as on
+usps.com. Timed, paid Pickup On Demand is website-only and not supported.
+
 **Settings tabs:**
 - **Account** — masked credentials, connection status, replace/remove, and
   the USPS test environment (TEM) toggle
@@ -173,6 +186,10 @@ Scripts/                make-icon.swift, mock-server.py
 docs/usps/              vendored USPS Carrier Pickup OpenAPI spec (the API contract)
 docs/superpowers/       design spec and implementation plans for this project
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and
+[SECURITY.md](SECURITY.md) for how credentials are handled and how to report
+a vulnerability.
 
 **The USPS contract is `docs/usps/carrier-pickup-v3.yaml`** — the official
 Carrier Pickup 3.1.10 OpenAPI spec. Build request models from its
@@ -229,6 +246,9 @@ Not supported in v1:
 - Pickup status. USPS reports no status: a pickup cancelled on usps.com still
   shows as scheduled in PickupBar (cancelling it here then just marks it
   cancelled)
+- Pickup On Demand (timed, paid pickups): usps.com only
+- Business-address flag: the API has none; the address's optional company
+  (firm) field is the only business signal sent
 - Multiple saved addresses
 - Notarized release builds
 

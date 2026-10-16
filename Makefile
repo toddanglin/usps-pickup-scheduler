@@ -2,7 +2,7 @@ DD ?= .build/dd
 PROJ = PickupBar.xcodeproj
 XCB = xcodebuild -project $(PROJ) -scheme PickupBar -derivedDataPath $(DD) -quiet
 
-.PHONY: generate build release test uitest run icon clean
+.PHONY: generate build release test ci uitest run icon clean
 generate:
 	xcodegen generate
 build: generate
@@ -12,6 +12,8 @@ release: generate
 	@echo "App at $(DD)/Build/Products/Release/PickupBar.app"
 test: generate
 	xcodebuild -project $(PROJ) -scheme PickupBar -derivedDataPath $(DD) -destination 'platform=macOS' test
+# What GitHub Actions runs: the unit tests (no UI test, which needs a desktop session).
+ci: test
 # Screenshots the UI test takes. Override to collect them somewhere else.
 UISCREENS ?= .build/uitest-screens
 MOCK_PORT ?= 8799
