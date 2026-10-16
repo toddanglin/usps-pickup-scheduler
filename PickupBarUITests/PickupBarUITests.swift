@@ -62,6 +62,10 @@ final class PickupBarUITests: XCTestCase {
         if name.contains("ConfiguredUser") {
             app.launchEnvironment["PICKUPBAR_UITEST_SEED"] = "1"
         }
+        // `make uitest CLEAN=1`: screenshots without the footer's mock-host label.
+        if ProcessInfo.processInfo.environment["PICKUPBAR_UITEST_CLEAN"] == "1" {
+            app.launchEnvironment["PICKUPBAR_UITEST_CLEAN"] = "1"
+        }
         app.launch()
     }
 

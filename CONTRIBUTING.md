@@ -22,6 +22,23 @@ make uitest     # end-to-end UI walk against the mock server, with screenshots
 `make uitest` drives the real menu bar, so run it from a normal terminal with
 accessibility permission; it is not run in CI.
 
+## Screenshots and the explainer video
+
+`make uitest CLEAN=1` hides the footer's orange mock-host label
+("127.0.0.1:8799"), so the captures can go in the README. The popover is
+translucent, so put a plain light window behind the menu bar area first, and
+capture on a Retina display for 2x images.
+
+The README's explainer (`docs/explainer.mp4` and `docs/explainer.gif`) is
+rendered from those captures by `Scripts/make-explainer.py` (Pillow frames,
+ffmpeg encoding, macOS `say` narration). Scene text, narration and timing live in
+its `storyboard()` function. To re-render:
+
+```sh
+make uitest CLEAN=1 UISCREENS=.build/explainer-screens
+make explainer
+```
+
 ## The mock server
 
 `Scripts/mock-server.py` (stdlib only) imitates the USPS endpoints and

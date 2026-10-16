@@ -27,6 +27,13 @@ enum UITestSupport {
     static var isSeeded: Bool {
         isActive && ProcessInfo.processInfo.environment["PICKUPBAR_UITEST_SEED"] == "1"
     }
+
+    /// Hide the footer's non-production host label, for marketing screenshots
+    /// (`make uitest CLEAN=1`). Only honored under the UI test, so a normally
+    /// launched app pointed at a non-production host always says so.
+    static var hidesEnvironmentBadge: Bool {
+        isActive && ProcessInfo.processInfo.environment["PICKUPBAR_UITEST_CLEAN"] == "1"
+    }
 }
 
 /// Credential storage for UI tests.

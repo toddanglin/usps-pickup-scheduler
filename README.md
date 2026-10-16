@@ -12,6 +12,12 @@ using your own USPS developer credentials — no browser, no re-login.
 **Status:** v1.0 — in daily use by the author; API coverage verified against
 the USPS test environment.
 
+## Quick look
+
+![PickupBar in under a minute: connect once with a USPS API key, verify your address, pick a day and count packages, get a confirmation number, and modify or cancel pickups from the menu bar](docs/explainer.gif)
+
+Prefer video with narration? [Watch the 55-second explainer (MP4)](docs/explainer.mp4)
+
 ## Screenshots
 
 | Onboarding | Schedule a pickup | Confirmation | Scheduled pickups |
@@ -102,6 +108,7 @@ make run        # build and launch
 make release    # release build; app lands in .build/dd/Build/Products/Release/PickupBar.app
 make test       # run the unit test suite
 make icon       # regenerate AppIcon.icns from Scripts/make-icon.swift
+make explainer  # re-render docs/explainer.mp4/.gif (needs `make uitest CLEAN=1 UISCREENS=.build/explainer-screens` first)
 ```
 
 Release builds are ad-hoc signed, not notarized. On first launch, macOS
@@ -233,7 +240,9 @@ terminal, not from a sandboxed shell, because macOS UI automation needs to
 attach to the app. The app is launched with `PICKUPBAR_UITEST=1`, which swaps
 in a throwaway defaults suite and credential store so your real settings are
 never touched. The first time you run it macOS may show a notification
-permission prompt for PickupBar; either answer is fine.
+permission prompt for PickupBar; either answer is fine. `make uitest CLEAN=1`
+also hides the footer's orange mock-host label, for screenshots meant for the
+README.
 
 ## Limitations / roadmap
 

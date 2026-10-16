@@ -16,6 +16,7 @@ struct FooterBar: View {
     /// the app at the mock server), and a footer that only knows about the
     /// toggle would quietly lie.
     private var nonProductionHost: String? {
+        if UITestSupport.hidesEnvironmentBadge { return nil }
         let url = BaseURL.resolve(useTestEnvironment: settings.useTestEnvironment)
         guard let host = url.host, host != BaseURL.production.host else { return nil }
         if let port = url.port { return "\(host):\(port)" }
