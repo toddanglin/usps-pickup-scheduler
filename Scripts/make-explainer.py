@@ -3,7 +3,7 @@
 
     make-explainer.py [--screens DIR] [--out DIR] [--work DIR]
 
-Writes <out>/explainer.mp4 (1280x720, 30 fps, narrated) and
+Writes <out>/explainer.mp4 (1280x720, 30 fps, silent unless --narrate) and
 <out>/explainer.gif (640x360, 12 fps, silent). Needs Python 3 with Pillow,
 ffmpeg/ffprobe on PATH (or in /opt/homebrew/bin), and macOS `say`.
 
@@ -552,6 +552,9 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "docs"))
     ap.add_argument("--work", default=os.path.join(ROOT, ".build/explainer"))
     ap.add_argument("--gif-dither", default="bayer:bayer_scale=5")
+    ap.add_argument("--narrate", action="store_true",
+                    help="include the synthesized narration track in the MP4 (off by default; "
+                         "the narration is still generated to pace the scenes)")
     ap.add_argument("--still", type=float, action="append", default=[],
                     help="only write the frame at this time (seconds) to --work; repeatable")
     args = ap.parse_args()
@@ -596,9 +599,10 @@ def main():
     enc = subprocess.Popen([
         FFMPEG, "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-        "-i", audio,
+        *(["-i", audio] if args.narrate else []),
         "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-tune", "stillimage",
-        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-shortest",
+        "-pix_fmt", "yuv420p",
+        *(["-c:a", "aac", "-b:a", "96k", "-shortest"] if args.narrate else ["-an"]),
         "-movflags", "+faststart", mp4], stdin=subprocess.PIPE)
 
     for n in range(frames):

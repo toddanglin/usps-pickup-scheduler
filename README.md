@@ -16,7 +16,7 @@ the USPS test environment.
 
 ![PickupBar in under a minute: connect once with a USPS API key, verify your address, pick a day and count packages, get a confirmation number, and modify or cancel pickups from the menu bar](docs/explainer.gif)
 
-Prefer video with narration? [Watch the 55-second explainer (MP4)](docs/explainer.mp4)
+Prefer a sharper version? [Watch the 55-second explainer (MP4)](docs/explainer.mp4)
 
 ## Screenshots
 

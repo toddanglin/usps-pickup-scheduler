@@ -31,7 +31,7 @@ capture on a Retina display for 2x images.
 
 The README's explainer (`docs/explainer.mp4` and `docs/explainer.gif`) is
 rendered from those captures by `Scripts/make-explainer.py` (Pillow frames,
-ffmpeg encoding, macOS `say` narration). Scene text, narration and timing live in
+ffmpeg encoding, macOS `say` used only to pace the scenes; pass `--narrate` to keep the voice track). Scene text, narration and timing live in
 its `storyboard()` function. To re-render:
 
 ```sh
