@@ -12,11 +12,6 @@ using your own USPS developer credentials — no browser, no re-login.
 **Status:** v1.0 — in daily use by the author; API coverage verified against
 the USPS test environment. See [CHANGELOG.md](CHANGELOG.md).
 
-Formerly PickupBar (renamed in 1.0.1). If you built PickupBar from source,
-your USPS credentials migrate automatically the first time Pickup launches
-(macOS asks to let Pickup use the ones PickupBar stored in your Keychain);
-re-enter your address once.
-
 ## Quick look
 
 ![Pickup in under a minute: connect once with a USPS API key, verify your address, pick a day and count packages, get a confirmation number, and modify or cancel pickups from the menu bar](docs/explainer.gif)
