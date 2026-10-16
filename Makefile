@@ -1,6 +1,6 @@
 DD ?= .build/dd
-PROJ = PickupBar.xcodeproj
-XCB = xcodebuild -project $(PROJ) -scheme PickupBar -derivedDataPath $(DD) -quiet
+PROJ = Pickup.xcodeproj
+XCB = xcodebuild -project $(PROJ) -scheme Pickup -derivedDataPath $(DD) -quiet
 
 .PHONY: generate build release test ci uitest run icon explainer clean
 generate:
@@ -9,9 +9,9 @@ build: generate
 	$(XCB) -configuration Debug build
 release: generate
 	$(XCB) -configuration Release build
-	@echo "App at $(DD)/Build/Products/Release/PickupBar.app"
+	@echo "App at $(DD)/Build/Products/Release/Pickup.app"
 test: generate
-	xcodebuild -project $(PROJ) -scheme PickupBar -derivedDataPath $(DD) -destination 'platform=macOS' test
+	xcodebuild -project $(PROJ) -scheme Pickup -derivedDataPath $(DD) -destination 'platform=macOS' test
 # What GitHub Actions runs: the unit tests (no UI test, which needs a desktop session).
 ci: test
 # Screenshots the UI test takes. Override to collect them somewhere else.
@@ -24,7 +24,7 @@ CLEAN ?=
 # server's lifetime and afterwards exports the screenshots from the result
 # bundle (reading the runner's container directly needs an "access data from
 # other apps" permission and otherwise fails silently; it is only a fallback).
-RUNNER_TMP = $(HOME)/Library/Containers/com.toddanglin.PickupBarUITests.xctrunner/Data/tmp/pickupbar-uiscreens
+RUNNER_TMP = $(HOME)/Library/Containers/com.toddanglin.PickupUITests.xctrunner/Data/tmp/pickup-uiscreens
 uitest: generate
 	rm -rf .build/uitest.xcresult
 	rm -rf "$(RUNNER_TMP)"
@@ -34,10 +34,10 @@ uitest: generate
 	@PORT=$(MOCK_PORT) python3 Scripts/mock-server.py > .build/uitest-mock.log 2>&1 & \
 	  MOCK_PID=$$!; \
 	  trap 'kill '"$$MOCK_PID"' 2>/dev/null' EXIT INT TERM; \
-	  TEST_RUNNER_PICKUPBAR_MOCK_PORT=$(MOCK_PORT) \
-	  TEST_RUNNER_PICKUPBAR_UITEST_CLEAN=$(CLEAN) \
-	  TEST_RUNNER_PICKUPBAR_UITEST_SCREENSHOTS="$(UISCREENS)" \
-	  xcodebuild -project $(PROJ) -scheme PickupBarUITests -destination 'platform=macOS' -derivedDataPath $(DD) -resultBundlePath .build/uitest.xcresult test; \
+	  TEST_RUNNER_PICKUP_MOCK_PORT=$(MOCK_PORT) \
+	  TEST_RUNNER_PICKUP_UITEST_CLEAN=$(CLEAN) \
+	  TEST_RUNNER_PICKUP_UITEST_SCREENSHOTS="$(UISCREENS)" \
+	  xcodebuild -project $(PROJ) -scheme PickupUITests -destination 'platform=macOS' -derivedDataPath $(DD) -resultBundlePath .build/uitest.xcresult test; \
 	  STATUS=$$?; \
 	  kill $$MOCK_PID 2>/dev/null || true; \
 	  python3 Scripts/export-uitest-screenshots.py .build/uitest.xcresult "$(UISCREENS)" \
@@ -47,9 +47,9 @@ uitest: generate
 	  echo "Screenshots in $(UISCREENS):"; ls -1 "$(UISCREENS)" 2>/dev/null; \
 	  exit $$STATUS
 run: build
-	open $(DD)/Build/Products/Debug/PickupBar.app
+	open $(DD)/Build/Products/Debug/Pickup.app
 icon:
-	swift Scripts/make-icon.swift PickupBar/Resources/Assets.xcassets/AppIcon.appiconset
+	swift Scripts/make-icon.swift Pickup/Resources/Assets.xcassets/AppIcon.appiconset
 # The README explainer video (docs/explainer.mp4 and .gif), rendered from clean
 # screenshots: run `make uitest CLEAN=1 UISCREENS=$(EXPLAINER_SCREENS)` first.
 # Needs Python 3 with Pillow, ffmpeg, and macOS `say`.

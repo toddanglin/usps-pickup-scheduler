@@ -1,4 +1,4 @@
-name: PickupBar
+name: Pickup
 options:
   bundleIdPrefix: com.toddanglin
   deploymentTarget:
@@ -14,17 +14,17 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     ENABLE_HARDENED_RUNTIME: YES
 targets:
-  PickupBar:
+  Pickup:
     type: application
     platform: macOS
     sources:
-      - path: PickupBar
+      - path: Pickup
         excludes: ["Info.plist"]
     info:
-      path: PickupBar/Info.plist
+      path: Pickup/Info.plist
       properties:
-        CFBundleDisplayName: PickupBar
-        CFBundleName: PickupBar
+        CFBundleDisplayName: Pickup
+        CFBundleName: Pickup
         # Without these XcodeGen writes a literal "1.0" / "1", and Settings ›
         # General would not show MARKETING_VERSION.
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
@@ -35,54 +35,54 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     entitlements:
-      path: PickupBar/PickupBar.entitlements
+      path: Pickup/Pickup.entitlements
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupBar
+        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.Pickup
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_STRICT_CONCURRENCY: minimal
-  PickupBarTests:
+  PickupTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [PickupBarTests]
+    sources: [PickupTests]
     dependencies:
-      - target: PickupBar
+      - target: Pickup
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupBarTests
-  PickupBarUITests:
+        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupTests
+  PickupUITests:
     type: bundle.ui-testing
     platform: macOS
-    sources: [PickupBarUITests]
+    sources: [PickupUITests]
     dependencies:
-      - target: PickupBar
+      - target: Pickup
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupBarUITests
+        PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.PickupUITests
         # The XCTRunner app and the .xctest bundle are both ad-hoc signed, and
         # ad-hoc signatures never match each other under the hardened runtime,
         # so the runner refuses to dlopen the test bundle. Local UI testing
         # does not need the hardened runtime.
         ENABLE_HARDENED_RUNTIME: NO
 schemes:
-  PickupBar:
+  Pickup:
     build:
-      targets: { PickupBar: all, PickupBarTests: [test] }
+      targets: { Pickup: all, PickupTests: [test] }
     run:
       config: Debug
     test:
       config: Debug
-      targets: [PickupBarTests]
-  PickupBarUITests:
+      targets: [PickupTests]
+  PickupUITests:
     build:
-      targets: { PickupBar: all, PickupBarUITests: [test] }
+      targets: { Pickup: all, PickupUITests: [test] }
     run:
       config: Debug
     test:
       config: Debug
-      targets: [PickupBarUITests]
+      targets: [PickupUITests]
