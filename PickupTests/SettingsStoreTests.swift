@@ -13,7 +13,7 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        TestDefaults.remove(suiteName: suiteName)
         defaults = nil
         suiteName = nil
         super.tearDown()

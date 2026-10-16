@@ -24,11 +24,23 @@ final class AppStateModifyCancelTests: XCTestCase {
     private var availableDates: [Date] { PickupDateCalculator.availableDates(from: Self.fixedNow) }
     private var secondDay: String { PickupDateCalculator.apiDateString(availableDates[1]) }
 
+    /// A throwaway defaults suite per test, removed in `tearDown` so test runs
+    /// do not leave plists behind in the app's container.
+    private var suiteName: String!
+
     override func setUp() {
         super.setUp()
-        settings = SettingsStore(defaults: UserDefaults(suiteName: "PickupTests.\(UUID().uuidString)")!)
+        suiteName = "PickupTests.\(UUID().uuidString)"
+        settings = SettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
         keychain = InMemoryKeychain()
         fake = FakeUSPSAPI()
+    }
+
+    override func tearDown() {
+        TestDefaults.remove(suiteName: suiteName)
+        settings = nil
+        suiteName = nil
+        super.tearDown()
     }
 
     /// A configured user looking at the history, which holds `record()`.

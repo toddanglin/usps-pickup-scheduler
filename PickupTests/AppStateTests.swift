@@ -45,13 +45,25 @@ final class AppStateTests: XCTestCase {
     private var notifier: SpyNotifier!
     private var factoryURLs: URLBox!
 
+    /// A throwaway defaults suite per test, removed in `tearDown` so test runs
+    /// do not leave plists behind in the app's container.
+    private var suiteName: String!
+
     override func setUp() {
         super.setUp()
-        settings = SettingsStore(defaults: UserDefaults(suiteName: "PickupTests.\(UUID().uuidString)")!)
+        suiteName = "PickupTests.\(UUID().uuidString)"
+        settings = SettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
         keychain = InMemoryKeychain()
         fake = FakeUSPSAPI()
         notifier = SpyNotifier()
         factoryURLs = URLBox()
+    }
+
+    override func tearDown() {
+        TestDefaults.remove(suiteName: suiteName)
+        settings = nil
+        suiteName = nil
+        super.tearDown()
     }
 
     private func makeState(credentials: Bool = false, address: Bool = false) -> AppState {
