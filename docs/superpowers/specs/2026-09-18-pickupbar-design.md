@@ -102,6 +102,8 @@ enum FlowState: Equatable {
   case confirmed(PickupConfirmation)
   case failed(USPSError, retryable: Bool)
   case history          // "Scheduled pickups" (added after v1)
+  case working(String)  // a non-schedule USPS call in flight, e.g. "Cancelling your pickup…"
+  case modifying(confirmationNumber: String)   // the form, editing an existing pickup
 }
 ```
 
@@ -120,6 +122,7 @@ Transitions:
   caption → `history` (only from `form` or `confirmed`); back → `form` (a fresh
   draft when coming from a confirmation).
 - Credential invalid detected anywhere → `needsCredentials` + `needsAttention = true`.
+- Modify and cancel transitions: see §4.7.
 
 ### 4.2 Models (all `Codable`, `Sendable`)
 
@@ -304,6 +307,77 @@ struct PickupDateCalculator {
 
 Base URL selection: `PICKUPBAR_BASE_URL` env var > TEM toggle > production.
 
+### 4.7 Modify and cancel (added after v1)
+
+Verified against apis-tem.usps.com on 2026-10-15; the OpenAPI document differs
+in places (it shows GET returning an array, and DELETE's `If-Match` as
+optional), so the app is built to the observed behavior.
+
+**USPS facts**
+- `GET /pickup/v3/carrier-pickup/{conf}` → 200 with an `ETag` header (a base64
+  string; lower-case `etag` over HTTP/2) and
+  `{"confirmationNumber", "pickupDate", "carrierPickupRequest": {pickupDate,
+  pickupAddress, packages, estimatedWeight, pickupLocation}}`. `packages` lists
+  all six types, zero counts included. `pickupAddress.contact` entries can be
+  `{}` or junk such as `{"cellNumber":"nullnullnull"}`. There is **no status
+  field**: a cancelled pickup GETs as 200 with the same body.
+- `PUT …/{conf}` with `If-Match: <etag>` and body
+  `{"pickupDate", "carrierPickupRequest": <SchedulePickupRequest without
+  nextAvailablePickup>}` → 200, a new `ETag`, the GET body shape. A stale
+  `If-Match` → 400 "The resource, … has been modified since the update
+  indicated by the If-Match request header."
+- `DELETE …/{conf}` with `If-Match` → 200, empty body. Already cancelled → 400
+  "Pickup already cancelled." (code 1401). Pickup day in the past → 400
+  "Pickup date is in the past." (code 1100).
+- An ETag lasts one hour or until used, so the app GETs immediately before
+  every PUT and DELETE.
+
+**Client** (`USPSAPI`)
+```swift
+struct FetchedPickup { var confirmation: PickupConfirmation; var request: SchedulePickupRequest?; var etag: String }
+func fetchPickup(confirmationNumber: String, token: String) async throws -> FetchedPickup
+func updatePickup(confirmationNumber: String, etag: String, request: SchedulePickupRequest, token: String) async throws -> FetchedPickup
+func cancelPickup(confirmationNumber: String, etag: String, token: String) async throws
+```
+`request` is decoded leniently and is nil rather than failing the fetch;
+unusable contact entries are stripped. A 404 on these endpoints is
+`USPSError.notFound(message:)`. The two 400s keep USPS's message, with hints
+"It's already cancelled with USPS — you can remove it from the list." and
+"The pickup changed on USPS's side. Try again." (the stale-ETag one is
+retryable).
+
+**State**
+- `PickupRecord.status` (`.scheduled` / `.cancelled`, default `.scheduled`,
+  unknown values decode as `.scheduled`) and `updatedAt`. A cancelled record
+  is never upcoming. `SettingsStore.updateHistory(_:)` replaces a record in
+  place by confirmation number.
+- `beginModify(record)`: `working("Loading pickup…")` → GET → the draft is
+  filled from USPS's copy (from the local record when it could not be read);
+  a day that is past or no longer offered becomes the first available day;
+  the hazmat attestation is never carried over → `modifying(conf)`.
+- `saveModification()`: `working("Updating your pickup…")` → GET (fresh ETag)
+  → PUT with `nextAvailablePickup: false` → the history record takes USPS's
+  date and the draft's packages, weight and location, plus `updatedAt`;
+  `lastConfirmation` is refreshed when it is the same pickup →
+  `confirmed(conf)` with `confirmationMode = .updated` ("Pickup updated",
+  Done → history).
+- `cancelModification()` ("Discard") → `history` with a fresh draft.
+- `cancelPickup(record)`: `working("Cancelling your pickup…")` → GET → DELETE →
+  `status = .cancelled` → `history`. "Already cancelled" counts as success.
+- `retry()` returns to where the failed call started (`retryFlow`): the
+  history for load and cancel (the error button then says "Back"), the edit
+  form with the draft kept for a failed save, the form for a failed schedule.
+
+**UI**: upcoming scheduled rows get "Modify…" and "Cancel pickup…" (with a
+confirmation dialog) in their ⋯ and context menus; past and cancelled rows only
+Copy / Remove. Cancelled rows sit under "Past" with a grey "Cancelled" capsule;
+modified rows show a small "Updated" caption. The form in edit mode says
+"Modify pickup" with the confirmation number, "Save Changes" and "Discard",
+and hides the "Last pickup" caption.
+
+**Mock server**: keeps POSTed pickups in memory and implements GET/PUT/DELETE
+with the behavior above (ETag = base64 SHA-256 of the GET body).
+
 ### 4.5 Views (SwiftUI)
 
 Popover window is fixed width 340 pt. Consistent 16 pt padding, `.regularMaterial`
@@ -374,7 +448,7 @@ docs/superpowers/{specs,plans}
 
 ## 7. Out of scope for v1
 
-Cancelling/modifying pickups and fetching their status from USPS (the local
-"Scheduled pickups" history was added after v1), multiple addresses, label purchase,
+Fetching pickup status from USPS (it has none to give; the local "Scheduled
+pickups" history and modify/cancel, §4.7, were added after v1), multiple addresses, label purchase,
 auto-update, notarized release builds (README documents `make build` and a
 manual Gatekeeper note).

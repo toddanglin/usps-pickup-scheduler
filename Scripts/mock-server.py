@@ -34,9 +34,19 @@ OTHER without specialInstructions -- and answers violations with a 400
 OASValidation error.
 
 Endpoints emulated:
-    POST /oauth2/v3/token
-    GET  /pickup/v3/carrier-pickup/eligibility
-    POST /pickup/v3/carrier-pickup
+    POST   /oauth2/v3/token
+    GET    /pickup/v3/carrier-pickup/eligibility
+    POST   /pickup/v3/carrier-pickup
+    GET    /pickup/v3/carrier-pickup/{confirmationNumber}
+    PUT    /pickup/v3/carrier-pickup/{confirmationNumber}
+    DELETE /pickup/v3/carrier-pickup/{confirmationNumber}
+
+Pickups created by POST are kept in memory for the GET/PUT/DELETE endpoints,
+which behave the way apis-tem.usps.com was observed to: GET returns an ETag
+header (base64 SHA-256 of the body); PUT and DELETE require it as If-Match and
+answer a stale one with the real "has been modified since" 400; a second DELETE
+gets "Pickup already cancelled." (1401), a past pickup date "Pickup date is in
+the past." (1100); a cancelled pickup still GETs as 200; unknown numbers 404.
 
 Environment variables:
     PORT            Port to listen on (default: 8787)
@@ -46,8 +56,12 @@ Environment variables:
                     to always return 401
 """
 
+import base64
+import datetime
+import hashlib
 import json
 import os
+import threading
 import random
 import re
 import string
@@ -253,6 +267,50 @@ def schedule_echo(body):
     }
 
 
+# -- stored pickups (GET / PUT / DELETE) ----------------------------------------
+
+PICKUPS = {}  # confirmation number -> {"pickupDate", "request", "cancelled"}
+PICKUPS_LOCK = threading.Lock()
+PICKUP_PATH = re.compile(r"^/pickup/v3/carrier-pickup/([A-Za-z0-9]+)$")
+
+
+def stored_echo(request):
+    """`carrierPickupRequest` the way the live GET returns it: like the
+    schedule echo, but with the cell number kept and an email as `{}`."""
+    echo = schedule_echo(request)
+    echo["pickupAddress"]["contact"] = [
+        {"cellNumber": entry["cellNumber"]} if "cellNumber" in entry else {}
+        for entry in request.get("pickupAddress", {}).get("contact", [])
+    ]
+    return echo
+
+
+def pickup_body(number, pickup):
+    return {"confirmationNumber": number,
+            "pickupDate": pickup["pickupDate"],
+            "carrierPickupRequest": stored_echo(pickup["request"])}
+
+
+def etag_for(body):
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode("utf-8")).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def modified_since_error(number):
+    return {"error": {"message": f"The resource, /pickup/v3/carrier-pickup/{number} has been modified "
+                                 "since the update indicated by the If-Match request header.",
+                      "errors": []}}
+
+
+ALREADY_CANCELLED_ERROR = {"error": {"code": "400", "message": "Pickup already cancelled.",
+                                     "errors": [{"title": "Pickup already cancelled.",
+                                                 "detail": "Pickup already cancelled.", "code": "1401"}]}}
+
+PAST_DATE_ERROR = {"error": {"message": "Pickup date is in the past.",
+                             "errors": [{"code": "1100", "title": "Pickup date is in the past.",
+                                         "detail": "Pickup date is in the past."}]}}
+
+
 SCHEDULE_ERROR_BODIES = {
     "400": (
         400,
@@ -332,6 +390,22 @@ class MockHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self._log(status, payload)
 
+    def _send_json_etag(self, status, payload, etag):
+        body = json.dumps(payload, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("ETag", etag)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self._log(status, payload)
+
+    def _send_empty(self, status):
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        self._log(status, None)
+
     def _send_text(self, status, text):
         body = text.encode("utf-8")
         self.send_response(status)
@@ -381,8 +455,27 @@ class MockHandler(BaseHTTPRequestHandler):
 
         if path == "/pickup/v3/carrier-pickup/eligibility":
             return self._handle_eligibility(parsed)
+        match = PICKUP_PATH.match(path)
+        if match:
+            return self._handle_get_pickup(match.group(1))
 
         self._not_found()
+
+    def do_PUT(self):
+        match = PICKUP_PATH.match(urllib.parse.urlparse(self.path).path)
+        if match:
+            return self._handle_update_pickup(match.group(1))
+        self._not_found()
+
+    def do_DELETE(self):
+        match = PICKUP_PATH.match(urllib.parse.urlparse(self.path).path)
+        if match:
+            return self._handle_cancel_pickup(match.group(1))
+        self._not_found()
+
+    def _unknown_pickup(self, number):
+        self._send_json(404, {"error": {"code": "404",
+                                        "message": f"No pickup with confirmation number {number}."}})
 
     def _not_found(self):
         self._send_json(
@@ -514,6 +607,9 @@ class MockHandler(BaseHTTPRequestHandler):
 
         confirmation_number = f"WTC{random_digits(9)}"
         pickup_date = body.get("pickupDate")
+        with PICKUPS_LOCK:
+            PICKUPS[confirmation_number] = {"pickupDate": pickup_date, "request": body,
+                                            "cancelled": False}
 
         self._send_json(
             200,
@@ -523,6 +619,72 @@ class MockHandler(BaseHTTPRequestHandler):
                 "carrierPickupRequest": schedule_echo(body),
             },
         )
+
+
+    def _handle_get_pickup(self, number):
+        if not self._bearer_ok():
+            return self._unauthorized()
+        with PICKUPS_LOCK:
+            pickup = PICKUPS.get(number)
+            if pickup is None:
+                return self._unknown_pickup(number)
+            body = pickup_body(number, pickup)
+        # A cancelled pickup still reads back as 200 with the same body.
+        self._send_json_etag(200, body, etag_for(body))
+
+    def _handle_update_pickup(self, number):
+        if not self._bearer_ok():
+            return self._unauthorized()
+        payload = self._parsed_body()
+        with PICKUPS_LOCK:
+            pickup = PICKUPS.get(number)
+            if pickup is None:
+                return self._unknown_pickup(number)
+            current = etag_for(pickup_body(number, pickup))
+            if self.headers.get("If-Match") != current:
+                return self._send_json(400, modified_since_error(number))
+            if pickup["cancelled"]:
+                return self._send_json(400, ALREADY_CANCELLED_ERROR)
+            if not isinstance(payload, dict):
+                return self._send_json(400, oas_validation_error([("/", "Request body must be a JSON object")]))
+            problems = []
+            extra = sorted(set(payload) - {"pickupDate", "carrierPickupRequest"})
+            if extra:
+                problems.append(("/", "Object instance has properties which are not allowed by the "
+                                      f"schema: [{', '.join(extra)}]"))
+            if "pickupDate" not in payload or "carrierPickupRequest" not in payload:
+                problems.append(("/", "Object has missing required properties: "
+                                      "[carrierPickupRequest, pickupDate]"))
+            inner = payload.get("carrierPickupRequest")
+            # The spec does not forbid nextAvailablePickup inside it; it is ignored.
+            problems += [(f"/carrierPickupRequest{p if p != '/' else ''}", m)
+                         for p, m in schedule_violations(inner)]
+            if problems:
+                return self._send_json(400, oas_validation_error(problems))
+            pickup["pickupDate"] = payload["pickupDate"]
+            pickup["request"] = dict(inner, pickupDate=payload["pickupDate"])
+            body = pickup_body(number, pickup)
+        self._send_json_etag(200, body, etag_for(body))
+
+    def _handle_cancel_pickup(self, number):
+        if not self._bearer_ok():
+            return self._unauthorized()
+        with PICKUPS_LOCK:
+            pickup = PICKUPS.get(number)
+            if pickup is None:
+                return self._unknown_pickup(number)
+            if pickup["cancelled"]:
+                return self._send_json(400, ALREADY_CANCELLED_ERROR)
+            if self.headers.get("If-Match") != etag_for(pickup_body(number, pickup)):
+                return self._send_json(400, modified_since_error(number))
+            try:
+                day = datetime.date.fromisoformat(pickup["pickupDate"])
+            except (TypeError, ValueError):
+                day = None
+            if day is not None and day < datetime.date.today():
+                return self._send_json(400, PAST_DATE_ERROR)
+            pickup["cancelled"] = True
+        self._send_empty(200)
 
 
 def main():

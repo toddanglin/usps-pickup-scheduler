@@ -235,6 +235,11 @@ final class PickupBarUITests: XCTestCase {
         XCTAssertTrue(app.buttons["history.copy.\(text)"].exists, "History copy button missing")
         mark("history visible")
         screenshot("08-history")
+        XCTAssertLessThan(popover.frame.height, 760,
+                          "The history is taller than it should be: height \(popover.frame.height)")
+
+        // 5b. Modify, then cancel, the pickup --------------------------
+        modifyThenCancelFirstPickup()
         app.buttons["history.back"].click()
 
         // 6. Back to a fresh form ---------------------------------------
@@ -269,6 +274,99 @@ final class PickupBarUITests: XCTestCase {
                 \(popoverDescription)
                 """)
         }
+    }
+
+    // MARK: - Modify / cancel
+
+    /// From the history: Modify… the first pickup (3 Ground Advantage → weight
+    /// 4), save, come back, then Cancel pickup… it.
+    private func modifyThenCancelFirstPickup() {
+        let numberPrefix = "history.number."
+        let firstNumber = app.staticTexts
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", numberPrefix)).firstMatch
+        guard require(firstNumber, "a history row") else { return }
+        let conf = String(firstNumber.identifier.dropFirst(numberPrefix.count))
+        mark("modifying \(conf)")
+
+        guard chooseRowAction(conf: conf, identifier: "history.modify.\(conf)", title: "Modify…") else { return }
+
+        let save = app.buttons["form.save"]
+        guard require(save, "modify form", timeout: 15) else { return }
+        XCTAssertEqual(Self.staticText(app.staticTexts["form.title"]), "Modify pickup")
+        let ground = app.textFields["form.count.USPS_GROUND_ADVANTAGE"]
+        XCTAssertEqual(ground.value as? String, "3", "The form should show the pickup's 3 Ground Advantage")
+        XCTAssertLessThan(popover.frame.height, 760,
+                          "The modify form is taller than it should be: height \(popover.frame.height)")
+        XCTAssertTrue(app.buttons["form.discard"].exists, "Discard button missing")
+        XCTAssertFalse(app.buttons["form.lastPickup"].exists, "The last-pickup caption shows while modifying")
+
+        let weight = app.textFields["form.weight"]
+        weight.click()
+        weight.typeKey("a", modifierFlags: .command)
+        weight.typeText("4\n")
+        let hazmat = app.checkBoxes["form.hazmat"]
+        if hazmat.value as? Int != 1 { hazmat.click() }
+        mark("modify form filled")
+        screenshot("09a-modify-form")
+
+        XCTAssertTrue(save.isEnabled, "Save Changes is disabled")
+        save.click()
+        mark("clicked save")
+
+        let title = app.staticTexts["confirmation.title"]
+        guard require(title, "updated confirmation", timeout: 20) else { return }
+        XCTAssertEqual(Self.staticText(title), "Pickup updated")
+        screenshot("09-updated")
+
+        let done = app.buttons["confirmation.done"]
+        guard require(done, "Done button") else { return }
+        done.click()
+        guard require(app.descendants(matching: .any)["history.updated.\(conf)"], "Updated caption") else { return }
+        mark("history shows Updated")
+
+        // Cancel it --------------------------------------------------
+        guard chooseRowAction(conf: conf, identifier: "history.cancel.\(conf)",
+                              title: "Cancel pickup…") else { return }
+        let confirm = app.descendants(matching: .any)["history.cancelConfirm"]
+        let confirmByTitle = app.buttons["Cancel pickup"]
+        if !confirm.waitForExistence(timeout: 5) && !confirmByTitle.exists {
+            require(confirm, "cancel confirmation dialog")
+            return
+        }
+        screenshot("09b0-cancel-confirm")
+        (confirm.exists ? confirm : confirmByTitle).click()
+        mark("confirmed cancel")
+
+        let badge = app.descendants(matching: .any)["history.status.\(conf)"]
+        guard require(badge, "Cancelled badge", timeout: 15) else { return }
+        XCTAssertEqual(badge.label, "Cancelled")
+        XCTAssertFalse(app.descendants(matching: .any)["history.updated.\(conf)"].exists,
+                       "A cancelled row should not also say Updated")
+        XCTAssertLessThan(popover.frame.height, 760,
+                          "The history is taller than it should be: height \(popover.frame.height)")
+        screenshot("09b-cancelled")
+        mark("cancelled \(conf)")
+    }
+
+    /// Opens a history row's "More" menu and picks an item, by identifier
+    /// when SwiftUI passed it to the menu item, else by title.
+    @discardableResult
+    private func chooseRowAction(conf: String, identifier: String, title: String) -> Bool {
+        let more = app.descendants(matching: .any)["history.more.\(conf)"]
+        guard require(more, "More menu of \(conf)") else { return false }
+        more.click()
+        let byID = app.menuItems[identifier]
+        let byTitle = app.menuItems[title]
+        if byID.waitForExistence(timeout: 3) {
+            byID.click()
+            return true
+        }
+        if byTitle.waitForExistence(timeout: 2) {
+            mark("menu item \(identifier) found by title only")
+            byTitle.click()
+            return true
+        }
+        return require(byID, "menu item \(identifier)")
     }
 
     // MARK: - Popover

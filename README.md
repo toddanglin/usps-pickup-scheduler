@@ -34,6 +34,11 @@ using your own USPS developer credentials — no browser, no re-login.
   split into upcoming and past, with copyable confirmation numbers. The USPS
   API has no way to list pickups, so this is PickupBar's own local record;
   pickups made on usps.com do not appear
+- Modify or cancel an upcoming pickup from that list: **Modify…** reopens the
+  form filled in with the pickup as USPS has it (day, location, instructions,
+  counts, weight) and saves it back; **Cancel pickup…** asks first, then
+  cancels it with USPS. Cancelled pickups move to "Past" with a "Cancelled"
+  badge
 - Friendly, specific error messages with a "Copy details" button for bug
   reports
 - Menu bar badge and a notification if your credentials stop working
@@ -121,6 +126,16 @@ Then drag `PickupBar.app` to `/Applications`.
   pickups" on the confirmation, or the "Last pickup" line on the form) to see
   every pickup PickupBar has scheduled
 
+**Changing or cancelling a pickup:**
+- In **Scheduled pickups**, open an upcoming pickup's **⋯** menu (or
+  right-click the row)
+- **Modify…** loads the pickup from USPS into the form; change what you need,
+  re-confirm the hazmat attestation and tap **Save Changes** (or **Discard**).
+  USPS keeps the same confirmation number
+- **Cancel pickup…** asks for confirmation, then cancels it with USPS. If USPS
+  says it was already cancelled, PickupBar just marks it cancelled
+- Past and cancelled pickups can only be copied or removed from the list
+
 **Settings tabs:**
 - **Account** — masked credentials, connection status, replace/remove, and
   the USPS test environment (TEM) toggle
@@ -194,8 +209,8 @@ The design spec and implementation plans for this project live in
 ### UI test
 
 `make uitest` runs an XCUITest that opens the real menu bar popover, walks
-onboarding → address → form → confirmation → scheduled pickups → a fresh form
-against the mock server, opens Settings, and saves a screenshot of every screen to
+onboarding → address → form → confirmation → scheduled pickups → modify (and
+"Pickup updated") → cancel → a fresh form against the mock server, opens Settings, and saves a screenshot of every screen to
 `.build/uitest-screens` (override with `UISCREENS=...`). It must be run from a normal
 terminal, not from a sandboxed shell, because macOS UI automation needs to
 attach to the app. The app is launched with `PICKUPBAR_UITEST=1`, which swaps
@@ -207,10 +222,13 @@ permission prompt for PickupBar; either answer is fine.
 
 Not supported in v1:
 
-- Cancelling or changing a pickup. PickupBar lists the pickups it scheduled,
-  but that history is local to this Mac: the USPS API cannot list pickups, so
-  pickups made on usps.com or elsewhere never show up, and removing one from
-  the list does not cancel it
+- Pickups made elsewhere. PickupBar lists, modifies and cancels the pickups
+  it scheduled, but that history is local to this Mac: the USPS API cannot
+  list pickups, so pickups made on usps.com or on another Mac never show up.
+  Removing a pickup from the list does not cancel it — use **Cancel pickup…**
+- Pickup status. USPS reports no status: a pickup cancelled on usps.com still
+  shows as scheduled in PickupBar (cancelling it here then just marks it
+  cancelled)
 - Multiple saved addresses
 - Notarized release builds
 

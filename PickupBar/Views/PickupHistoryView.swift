@@ -10,6 +10,11 @@ struct PickupHistoryView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: SettingsStore
 
+    /// The pickup whose "Cancel pickup…" is waiting for a yes or no. The
+    /// question is asked inline: a sheet or alert on the `MenuBarExtra` window
+    /// closes the popover when clicked, and the click is lost.
+    @State private var pendingCancel: PickupRecord?
+
     /// About eight rows; beyond that the list scrolls at this fixed height.
     private static let listMaxHeight: CGFloat = 8 * 54
 
@@ -20,7 +25,9 @@ struct PickupHistoryView: View {
                 .padding(.top, Style.outerPadding)
                 .padding(.bottom, 8)
 
-            if settings.history.isEmpty {
+            if let record = pendingCancel {
+                cancelConfirmation(record)
+            } else if settings.history.isEmpty {
                 emptyState
             } else {
                 FittingScrollView(maxHeight: min(Self.listMaxHeight, PopoverMetrics.maxHeight - 120)) {
@@ -37,6 +44,46 @@ struct PickupHistoryView: View {
                 .padding(.top, 8)
                 .padding(.bottom, Style.outerPadding)
         }
+    }
+
+    private func cancelConfirmation(_ record: PickupRecord) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Cancel the pickup on \(record.longDisplayDate)?")
+                    .font(.callout.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("history.cancelTitle")
+                Text("USPS will no longer come for these packages.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(record.packageSummary)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(record.confirmationNumber)
+                        .font(.caption.monospaced())
+                }
+                .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Keep pickup") { pendingCancel = nil }
+                        .keyboardShortcut(.cancelAction)
+                        .accessibilityIdentifier("history.cancelKeep")
+                    Spacer(minLength: 0)
+                    Button("Cancel pickup", role: .destructive) {
+                        pendingCancel = nil
+                        Task { await state.cancelPickup(record) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .accessibilityIdentifier("history.cancelConfirm")
+                }
+                .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, Style.outerPadding)
     }
 
     private var header: some View {
@@ -102,7 +149,7 @@ struct PickupHistoryView: View {
                         HistoryRow(record: record,
                                    isActionable: record.isUpcoming(asOf: Date()),
                                    modify: { Task { await state.beginModify(record) } },
-                                   cancel: { Task { await state.cancelPickup(record) } },
+                                   cancel: { pendingCancel = record },
                                    remove: {
                                        settings.removeFromHistory(confirmationNumber: record.confirmationNumber)
                                    })
@@ -120,10 +167,9 @@ private struct HistoryRow: View {
     let record: PickupRecord
     let isActionable: Bool
     let modify: () -> Void
+    /// Asks before cancelling; see `PickupHistoryView.pendingCancel`.
     let cancel: () -> Void
     let remove: () -> Void
-
-    @State private var confirmingCancel = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
@@ -181,15 +227,6 @@ private struct HistoryRow: View {
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .contextMenu { actions }
-        .confirmationDialog("Cancel the pickup on \(record.longDisplayDate)?",
-                            isPresented: $confirmingCancel) {
-            Button("Cancel pickup", role: .destructive, action: cancel)
-                .accessibilityIdentifier("history.cancelConfirm")
-            Button("Keep pickup", role: .cancel) {}
-                .accessibilityIdentifier("history.cancelKeep")
-        } message: {
-            Text("USPS will no longer come for these packages.")
-        }
     }
 
     @ViewBuilder
@@ -197,7 +234,7 @@ private struct HistoryRow: View {
         if isActionable {
             Button("Modify…", action: modify)
                 .accessibilityIdentifier("history.modify.\(record.confirmationNumber)")
-            Button("Cancel pickup…", role: .destructive) { confirmingCancel = true }
+            Button("Cancel pickup…", role: .destructive) { cancel() }
                 .accessibilityIdentifier("history.cancel.\(record.confirmationNumber)")
             Divider()
         }
