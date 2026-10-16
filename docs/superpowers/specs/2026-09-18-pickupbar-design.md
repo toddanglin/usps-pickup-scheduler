@@ -368,8 +368,8 @@ retryable).
   history for load and cancel (the error button then says "Back"), the edit
   form with the draft kept for a failed save, the form for a failed schedule.
 
-**UI**: upcoming scheduled rows get "Modify…" and "Cancel pickup…" (with a
-confirmation dialog) in their ⋯ and context menus; past and cancelled rows only
+**UI**: upcoming scheduled rows get "Modify…" and "Cancel pickup…" (with an inline
+confirmation in the history — a sheet on the MenuBarExtra window closes the popover and loses the click) in their ⋯ and context menus; past and cancelled rows only
 Copy / Remove. Cancelled rows sit under "Past" with a grey "Cancelled" capsule;
 modified rows show a small "Updated" caption. The form in edit mode says
 "Modify pickup" with the confirmation number, "Save Changes" and "Discard",
