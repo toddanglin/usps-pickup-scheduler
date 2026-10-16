@@ -1,11 +1,5 @@
 import SwiftUI
 
-/// The USPS Developer Portal, where the Carrier Pickup product is added.
-enum USPSPortal {
-    static let url = URL(string: "https://developers.usps.com")!
-    static let linkTitle = "Open USPS Developer Portal"
-}
-
 /// Yellow banner shown while the stored credentials belong to a USPS app
 /// without the Carrier Pickup product: scheduling will fail, and the fix lives
 /// in the developer portal rather than in PickupBar.
@@ -28,7 +22,7 @@ struct ScopeWarningBanner: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Link(USPSPortal.linkTitle, destination: USPSPortal.url)
+                Link(USPSLinks.developerPortalTitle, destination: USPSLinks.developerPortal)
                     .font(.caption)
             }
             Spacer(minLength: 0)

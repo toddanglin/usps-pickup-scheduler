@@ -78,6 +78,20 @@ repo (MIT).
 | Launch at login | `SMAppService.mainApp` toggle in Settings |
 | License | MIT |
 
+### 3.1 What the API cannot carry (decided before the public release)
+
+The Carrier Pickup 3.x API has no fields for terms acceptance, hazardous
+materials, a business/residential flag, or a timed pickup window. So:
+
+- **Business addresses:** no business flag. The address's optional `firm`
+  is the only business signal the API accepts, and PickupBar sends just that.
+- **Pickup On Demand** (timed, paid) is website-only and out of scope.
+- **Terms and hazmat are reminders, not data.** Onboarding and Settings ›
+  Account carry a caption linking the USPS API Terms of Use; the form's
+  hazmat checkbox gates the Schedule button and links USPS Publication 52.
+  Nothing about either is sent to or recorded by USPS — the user remains
+  responsible, exactly as on usps.com.
+
 ## 4. Architecture
 
 ```

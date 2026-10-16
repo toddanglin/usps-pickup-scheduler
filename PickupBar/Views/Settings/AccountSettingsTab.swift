@@ -43,6 +43,8 @@ struct AccountSettingsTab: View {
                     Button("Remove") { confirmRemove = true }
                         .disabled(state.credentialsStatus == .missing)
                 }
+            } footer: {
+                LinkedCaption.termsNote()
             }
 
             if isReplacing {

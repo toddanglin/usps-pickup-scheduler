@@ -55,8 +55,8 @@ struct ErrorView: View {
                 if suggestsPortal {
                     // Nothing in the app can grant the missing API product, so
                     // the portal is the only thing worth doing next.
-                    Link(destination: USPSPortal.url) {
-                        Text(USPSPortal.linkTitle).frame(maxWidth: .infinity)
+                    Link(destination: USPSLinks.developerPortal) {
+                        Text(USPSLinks.developerPortalTitle).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)

@@ -28,8 +28,8 @@ struct OnboardingView: View {
                 OnboardingStep(number: 3, text: "Paste them below — they're stored in your Keychain")
             }
 
-            Link(destination: URL(string: "https://developers.usps.com")!) {
-                Label("Open USPS Developer Portal", systemImage: "arrow.up.right.square")
+            Link(destination: USPSLinks.developerPortal) {
+                Label(USPSLinks.developerPortalTitle, systemImage: "arrow.up.right.square")
                     .font(.callout)
             }
 
@@ -48,6 +48,10 @@ struct OnboardingView: View {
 
             PrimaryButton("Verify & Save", isBusy: isBusy, isEnabled: canSubmit, action: save)
                 .accessibilityIdentifier("onboarding.verify")
+
+            LinkedCaption.termsNote(alignment: .center)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("onboarding.terms")
         }
         .padding(Style.outerPadding)
     }

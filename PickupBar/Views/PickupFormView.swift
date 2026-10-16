@@ -184,13 +184,21 @@ struct PickupFormView: View {
         return "Last pickup: \(confirmation.confirmationNumber) on \(display.string(from: date))"
     }
 
+    /// The USPS API has no hazmat field: the checkbox is a reminder, and the
+    /// Publication 52 link says what it is a reminder of.
     private var hazmatToggle: some View {
-        Toggle(isOn: $state.draft.hazmatConfirmed) {
-            Text("These packages contain no hazardous materials")
-                .font(.caption)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 0) {
+            Toggle(isOn: $state.draft.hazmatConfirmed) {
+                Text("These packages contain no hazardous materials")
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("form.hazmat")
+            LinkedCaption.publication52Note
+                // Line up with the checkbox's label, not the box itself.
+                .padding(.leading, 20)
+                .accessibilityIdentifier("form.pub52")
         }
-        .toggleStyle(.checkbox)
-        .accessibilityIdentifier("form.hazmat")
     }
 }
