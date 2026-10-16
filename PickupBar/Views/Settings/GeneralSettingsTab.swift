@@ -56,6 +56,13 @@ struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .safeAreaInset(edge: .bottom) {
+            Text("Made with 🤖 by [@toddanglin](https://github.com/toddanglin)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 10)
+                .accessibilityIdentifier("general.credit")
+        }
         .onAppear(perform: refresh)
     }
 
