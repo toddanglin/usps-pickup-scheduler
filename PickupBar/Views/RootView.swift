@@ -22,12 +22,14 @@ struct RootView: View {
             OnboardingView()
         case .needsAddress:
             AddressSetupView()
-        case .form:
+        case .form, .modifying:
             PickupFormView()
         case .scheduling:
-            SchedulingView()
+            SchedulingView(title: "Scheduling your pickup…")
+        case .working(let label):
+            SchedulingView(title: label)
         case .confirmed(let confirmation):
-            ConfirmationView(confirmation: confirmation)
+            ConfirmationView(confirmation: confirmation, mode: state.confirmationMode)
         case .failed(let error, let retryable):
             ErrorView(error: error, retryable: retryable)
         case .history:

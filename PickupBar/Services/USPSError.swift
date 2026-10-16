@@ -14,6 +14,9 @@ enum USPSError: Error, Equatable, Sendable {
     case serviceUnavailable
     case badRequest(message: String, details: [String])
     case addressNotEligible(message: String)
+    /// A 404 on a single pickup: USPS has no pickup with that confirmation
+    /// number (in this environment).
+    case notFound(message: String)
     case unexpected(status: Int, body: String)
     case decoding(String)
 }
@@ -32,9 +35,13 @@ extension USPSError {
         case .serviceUnavailable:
             return "USPS is having trouble"
         case .badRequest:
+            if isAlreadyCancelled { return "This pickup is already cancelled" }
+            if isStaleETag { return "USPS couldn't update this pickup" }
             return "USPS couldn't schedule this pickup"
         case .addressNotEligible:
             return "This address isn't eligible for pickup"
+        case .notFound:
+            return "Pickup not found"
         case .unexpected, .decoding:
             return "Something unexpected happened"
         }
@@ -57,6 +64,8 @@ extension USPSError {
         case .badRequest(let message, _):
             return message
         case .addressNotEligible(let message):
+            return message
+        case .notFound(let message):
             return message
         case .unexpected(let status, let body):
             // status 0 means a transport-level failure, where the body carries
@@ -82,10 +91,18 @@ extension USPSError {
             return "Wait a minute and try again."
         case .serviceUnavailable:
             return "Try again in a few minutes."
-        case .badRequest(_, let details):
+        case .badRequest(let message, let details):
+            if isAlreadyCancelled { return "It's already cancelled with USPS — you can remove it from the list." }
+            if isStaleETag { return "The pickup changed on USPS's side. Try again." }
+            if message.lowercased().contains("date is in the past") {
+                return "USPS can't change or cancel a pickup whose day has passed."
+            }
             return details.isEmpty ? nil : details.joined(separator: "\n")
         case .addressNotEligible:
             return "Double-check the address, or schedule at usps.com to see alternatives."
+        case .notFound:
+            return "It may belong to the other USPS environment (production vs. TEM), or USPS no longer has it. "
+                + "You can remove it from the list."
         case .unexpected:
             return "Copy the details and open an issue if this keeps happening."
         case .decoding:
@@ -95,15 +112,31 @@ extension USPSError {
         }
     }
 
+    /// USPS's 400 "Pickup already cancelled." (error code 1401) on a DELETE.
+    var isAlreadyCancelled: Bool {
+        guard case .badRequest(let message, _) = self else { return false }
+        return message.lowercased().contains("already cancelled")
+    }
+
+    /// USPS's 400 "…has been modified since the update indicated by the
+    /// If-Match request header." — the ETag sent was stale.
+    var isStaleETag: Bool {
+        guard case .badRequest(let message, _) = self else { return false }
+        return message.lowercased().contains("modified since")
+    }
+
     /// Whether the failing operation is worth offering a "Try again" button for.
     var isRetryable: Bool {
         switch self {
         case .offline, .rateLimited, .serviceUnavailable, .unexpected:
             return true
+        case .badRequest:
+            // A stale ETag only means USPS's copy moved on; a fresh GET fixes it.
+            return isStaleETag
         // `.decoding` is not retryable: it can only happen after a 2xx, so
         // retrying risks scheduling a second pickup.
-        case .invalidCredentials, .forbidden, .insufficientScope, .badRequest,
-             .addressNotEligible, .decoding:
+        case .invalidCredentials, .forbidden, .insufficientScope,
+             .addressNotEligible, .notFound, .decoding:
             return false
         }
     }
@@ -119,6 +152,7 @@ extension USPSError {
         case .serviceUnavailable: return "serviceUnavailable"
         case .badRequest: return "badRequest"
         case .addressNotEligible: return "addressNotEligible"
+        case .notFound: return "notFound"
         case .unexpected: return "unexpected"
         case .decoding: return "decoding"
         }
@@ -139,6 +173,9 @@ extension USPSError {
             for detail in details { lines.append("detail: \(detail)") }
         case .addressNotEligible(let message):
             lines.append("status: 400")
+            lines.append("message: \(message)")
+        case .notFound(let message):
+            lines.append("status: 404")
             lines.append("message: \(message)")
         case .unexpected(let status, let body):
             lines.append("status: \(status)")

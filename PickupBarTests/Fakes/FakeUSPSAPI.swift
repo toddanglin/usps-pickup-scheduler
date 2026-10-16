@@ -15,6 +15,21 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
         .success(PickupConfirmation(confirmationNumber: "ABC123", pickupDate: "2026-09-21"))
     private var _scheduleResults: [Result<PickupConfirmation, Error>] = []
 
+    private var _fetchResult: Result<FetchedPickup, Error> = .success(FakeUSPSAPI.defaultFetched)
+    private var _fetchResults: [Result<FetchedPickup, Error>] = []
+    private var _updateResult: Result<FetchedPickup, Error> = .success(FakeUSPSAPI.defaultUpdated)
+    private var _updateResults: [Result<FetchedPickup, Error>] = []
+    private var _cancelResult: Result<Void, Error> = .success(())
+    private var _cancelResults: [Result<Void, Error>] = []
+
+    private var _fetchCallCount = 0
+    private var _updateCallCount = 0
+    private var _cancelCallCount = 0
+    private var _lastFetchConfirmationNumber: String?
+    private var _lastUpdate: (confirmationNumber: String, etag: String, request: SchedulePickupRequest)?
+    private var _lastCancel: (confirmationNumber: String, etag: String)?
+    private var _calls: [String] = []
+
     private var _tokenCallCount = 0
     private var _eligibilityCallCount = 0
     private var _scheduleCallCount = 0
@@ -28,7 +43,47 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
         streetAddress: "4120 BINGHAM AVE", secondaryAddress: nil, city: "SAINT LOUIS",
         state: "MO", ZIPCode: "63116", ZIPPlus4: "2520")
 
+    static let defaultFetched = FetchedPickup(
+        confirmation: PickupConfirmation(confirmationNumber: "ABC123", pickupDate: "2026-09-21"),
+        request: nil, etag: "fake-etag")
+    static let defaultUpdated = FetchedPickup(
+        confirmation: PickupConfirmation(confirmationNumber: "ABC123", pickupDate: "2026-09-21"),
+        request: nil, etag: "fake-etag-updated")
+
     // MARK: - Configuration
+
+    var fetchResult: Result<FetchedPickup, Error> {
+        get { lock.withLock { _fetchResult } }
+        set { lock.withLock { _fetchResult = newValue } }
+    }
+
+    /// Handed out by `fetchPickup`, in order, before falling back to `fetchResult`.
+    var fetchResults: [Result<FetchedPickup, Error>] {
+        get { lock.withLock { _fetchResults } }
+        set { lock.withLock { _fetchResults = newValue } }
+    }
+
+    var updateResult: Result<FetchedPickup, Error> {
+        get { lock.withLock { _updateResult } }
+        set { lock.withLock { _updateResult = newValue } }
+    }
+
+    /// Handed out by `updatePickup`, in order, before falling back to `updateResult`.
+    var updateResults: [Result<FetchedPickup, Error>] {
+        get { lock.withLock { _updateResults } }
+        set { lock.withLock { _updateResults = newValue } }
+    }
+
+    var cancelResult: Result<Void, Error> {
+        get { lock.withLock { _cancelResult } }
+        set { lock.withLock { _cancelResult = newValue } }
+    }
+
+    /// Handed out by `cancelPickup`, in order, before falling back to `cancelResult`.
+    var cancelResults: [Result<Void, Error>] {
+        get { lock.withLock { _cancelResults } }
+        set { lock.withLock { _cancelResults = newValue } }
+    }
 
     var tokenResult: Result<OAuthToken, Error> {
         get { lock.withLock { _tokenResult } }
@@ -66,6 +121,17 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
     }
 
     // MARK: - Observations
+
+    var fetchCallCount: Int { lock.withLock { _fetchCallCount } }
+    var updateCallCount: Int { lock.withLock { _updateCallCount } }
+    var cancelCallCount: Int { lock.withLock { _cancelCallCount } }
+    var lastFetchConfirmationNumber: String? { lock.withLock { _lastFetchConfirmationNumber } }
+    var lastUpdate: (confirmationNumber: String, etag: String, request: SchedulePickupRequest)? {
+        lock.withLock { _lastUpdate }
+    }
+    var lastCancel: (confirmationNumber: String, etag: String)? { lock.withLock { _lastCancel } }
+    /// "fetch", "update" and "cancel", in the order they were made.
+    var calls: [String] { lock.withLock { _calls } }
 
     var tokenCallCount: Int { lock.withLock { _tokenCallCount } }
     var eligibilityCallCount: Int { lock.withLock { _eligibilityCallCount } }
@@ -119,5 +185,39 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
             return _scheduleResults.isEmpty ? _scheduleResult : _scheduleResults.removeFirst()
         }
         return try result.get()
+    }
+
+    func fetchPickup(confirmationNumber: String, token: String) async throws -> FetchedPickup {
+        let result = lock.withLock { () -> Result<FetchedPickup, Error> in
+            _fetchCallCount += 1
+            _calls.append("fetch")
+            _lastFetchConfirmationNumber = confirmationNumber
+            _lastToken = token
+            return _fetchResults.isEmpty ? _fetchResult : _fetchResults.removeFirst()
+        }
+        return try result.get()
+    }
+
+    func updatePickup(confirmationNumber: String, etag: String, request: SchedulePickupRequest,
+                      token: String) async throws -> FetchedPickup {
+        let result = lock.withLock { () -> Result<FetchedPickup, Error> in
+            _updateCallCount += 1
+            _calls.append("update")
+            _lastUpdate = (confirmationNumber: confirmationNumber, etag: etag, request: request)
+            _lastToken = token
+            return _updateResults.isEmpty ? _updateResult : _updateResults.removeFirst()
+        }
+        return try result.get()
+    }
+
+    func cancelPickup(confirmationNumber: String, etag: String, token: String) async throws {
+        let result = lock.withLock { () -> Result<Void, Error> in
+            _cancelCallCount += 1
+            _calls.append("cancel")
+            _lastCancel = (confirmationNumber: confirmationNumber, etag: etag)
+            _lastToken = token
+            return _cancelResults.isEmpty ? _cancelResult : _cancelResults.removeFirst()
+        }
+        try result.get()
     }
 }

@@ -70,6 +70,14 @@ final class SettingsStore: ObservableObject {
         history = updated
     }
 
+    /// Replaces the record with `record`'s confirmation number, keeping its
+    /// place in the list. Does nothing when there is no such record.
+    func updateHistory(_ record: PickupRecord) {
+        guard let index = history.firstIndex(where: { $0.confirmationNumber == record.confirmationNumber })
+        else { return }
+        history[index] = record
+    }
+
     /// Forgets a pickup locally. It stays scheduled with USPS.
     func removeFromHistory(confirmationNumber: String) {
         history.removeAll { $0.confirmationNumber == confirmationNumber }

@@ -99,9 +99,13 @@ struct PickupHistoryView: View {
                 VStack(spacing: 0) {
                     ForEach(Array(records.enumerated()), id: \.element.id) { index, record in
                         if index > 0 { Divider().padding(.vertical, 4) }
-                        HistoryRow(record: record) {
-                            settings.removeFromHistory(confirmationNumber: record.confirmationNumber)
-                        }
+                        HistoryRow(record: record,
+                                   isActionable: record.isUpcoming(asOf: Date()),
+                                   modify: { Task { await state.beginModify(record) } },
+                                   cancel: { Task { await state.cancelPickup(record) } },
+                                   remove: {
+                                       settings.removeFromHistory(confirmationNumber: record.confirmationNumber)
+                                   })
                     }
                 }
             }
@@ -109,16 +113,44 @@ struct PickupHistoryView: View {
     }
 }
 
-/// One pickup: day, packages, confirmation number, and copy/remove actions.
+/// One pickup: day, packages, confirmation number, and its actions. Upcoming
+/// scheduled pickups can be modified or cancelled with USPS; past and
+/// cancelled ones can only be copied or removed from the list.
 private struct HistoryRow: View {
     let record: PickupRecord
+    let isActionable: Bool
+    let modify: () -> Void
+    let cancel: () -> Void
     let remove: () -> Void
+
+    @State private var confirmingCancel = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(record.shortDisplayDate)
-                    .font(.callout.weight(.medium))
+                HStack(spacing: 6) {
+                    Text(record.shortDisplayDate)
+                        .font(.callout.weight(.medium))
+                        .strikethrough(record.status == .cancelled, color: .secondary)
+                    if record.status == .cancelled {
+                        Text("Cancelled")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.18)))
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Cancelled")
+                            .accessibilityIdentifier("history.status.\(record.confirmationNumber)")
+                    } else if record.updatedAt != nil {
+                        Text("Updated")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Updated")
+                            .accessibilityIdentifier("history.updated.\(record.confirmationNumber)")
+                    }
+                }
                 Text(record.packageSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -149,16 +181,34 @@ private struct HistoryRow: View {
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .contextMenu { actions }
+        .confirmationDialog("Cancel the pickup on \(record.longDisplayDate)?",
+                            isPresented: $confirmingCancel) {
+            Button("Cancel pickup", role: .destructive, action: cancel)
+                .accessibilityIdentifier("history.cancelConfirm")
+            Button("Keep pickup", role: .cancel) {}
+                .accessibilityIdentifier("history.cancelKeep")
+        } message: {
+            Text("USPS will no longer come for these packages.")
+        }
     }
 
     @ViewBuilder
     private var actions: some View {
+        if isActionable {
+            Button("Modify…", action: modify)
+                .accessibilityIdentifier("history.modify.\(record.confirmationNumber)")
+            Button("Cancel pickup…", role: .destructive) { confirmingCancel = true }
+                .accessibilityIdentifier("history.cancel.\(record.confirmationNumber)")
+            Divider()
+        }
         Button("Copy confirmation number") {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(record.confirmationNumber, forType: .string)
         }
         Button("Remove from list", role: .destructive, action: remove)
-            .help("Removes it from this list only. The pickup stays scheduled with USPS.")
+            .help(record.status == .cancelled
+                  ? "Removes it from this list."
+                  : "Removes it from this list only. The pickup stays scheduled with USPS.")
     }
 }

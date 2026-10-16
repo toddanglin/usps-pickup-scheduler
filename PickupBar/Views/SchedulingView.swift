@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// Shown while the schedule request is in flight.
+/// Shown while a USPS request is in flight: scheduling, loading, updating or
+/// cancelling a pickup.
 struct SchedulingView: View {
+    /// e.g. "Scheduling your pickup…".
+    var title: String
+    var caption: String = "Talking to USPS"
+
     @State private var isAnimating = false
 
     var body: some View {
@@ -14,9 +19,10 @@ struct SchedulingView: View {
                 .symbolEffect(.pulse, isActive: isAnimating)
 
             VStack(spacing: 4) {
-                Text("Scheduling your pickup…")
+                Text(title)
                     .font(.headline)
-                Text("Talking to USPS")
+                    .accessibilityIdentifier("working.title")
+                Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

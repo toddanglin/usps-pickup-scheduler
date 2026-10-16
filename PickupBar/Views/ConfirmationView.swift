@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// Success screen: the confirmation number, the (parsed) pickup date, and a way
-/// straight back into a new pickup.
+/// straight back into a new pickup. After "Modify…" it says "Pickup updated"
+/// and leads back to the history instead.
 struct ConfirmationView: View {
     let confirmation: PickupConfirmation
+    var mode: ConfirmationMode = .scheduled
 
     @EnvironmentObject private var state: AppState
     @State private var didAppear = false
@@ -16,8 +18,9 @@ struct ConfirmationView: View {
                 .symbolEffect(.bounce, value: didAppear)
 
             VStack(spacing: 2) {
-                Text("Pickup scheduled")
+                Text(mode == .updated ? "Pickup updated" : "Pickup scheduled")
                     .font(.headline)
+                    .accessibilityIdentifier("confirmation.title")
                 Text(Self.displayDate(confirmation.pickupDate))
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -47,13 +50,23 @@ struct ConfirmationView: View {
                 .multilineTextAlignment(.center)
 
             VStack(spacing: 6) {
-                PrimaryButton("Schedule another pickup") { state.scheduleAnother() }
-                    .accessibilityIdentifier("confirmation.another")
-                Button("View scheduled pickups") { state.showHistory() }
-                    .buttonStyle(.borderless)
-                    .font(.callout)
-                    .foregroundStyle(.tint)
-                    .accessibilityIdentifier("confirmation.history")
+                if mode == .updated {
+                    PrimaryButton("Done") { state.showHistory() }
+                        .accessibilityIdentifier("confirmation.done")
+                    Button("Schedule another pickup") { state.scheduleAnother() }
+                        .buttonStyle(.borderless)
+                        .font(.callout)
+                        .foregroundStyle(.tint)
+                        .accessibilityIdentifier("confirmation.another")
+                } else {
+                    PrimaryButton("Schedule another pickup") { state.scheduleAnother() }
+                        .accessibilityIdentifier("confirmation.another")
+                    Button("View scheduled pickups") { state.showHistory() }
+                        .buttonStyle(.borderless)
+                        .font(.callout)
+                        .foregroundStyle(.tint)
+                        .accessibilityIdentifier("confirmation.history")
+                }
             }
         }
         .padding(Style.outerPadding)

@@ -37,7 +37,7 @@ final class LiveUSPSClient: USPSAPI {
                                                                           clientSecret: clientSecret))
 
         let requestedAt = Date()
-        let (status, data) = try await send(request)
+        let (status, data, _) = try await send(request)
         guard (200..<300).contains(status) else {
             // The token endpoint reports bad credentials as 401, or as a 400
             // carrying `{"error":"invalid_client"}`. Any other 400 is a
@@ -84,7 +84,7 @@ final class LiveUSPSClient: USPSAPI {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-        let (status, data) = try await send(request)
+        let (status, data, _) = try await send(request)
         guard (200..<300).contains(status) else {
             // A 400 here means USPS could not match the address, which is a
             // user-fixable problem rather than a malformed request.
@@ -113,7 +113,7 @@ final class LiveUSPSClient: USPSAPI {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try Self.makeEncoder().encode(pickup)
 
-        let (status, data) = try await send(request)
+        let (status, data, _) = try await send(request)
         guard (200..<300).contains(status) else { throw mapStatus(status, data: data) }
 
         do {
@@ -123,21 +123,100 @@ final class LiveUSPSClient: USPSAPI {
         }
     }
 
+    // MARK: - One pickup: read, change, cancel
+    //
+    // Built to what apis-tem.usps.com actually does (design spec §4.7): GET
+    // answers with an `ETag` header (`etag` over HTTP/2) that PUT and DELETE
+    // must send back as `If-Match`; it is good for an hour or until used.
+
+    static let notFoundMessage = "USPS doesn't know this confirmation number."
+
+    func fetchPickup(confirmationNumber: String, token: String) async throws -> FetchedPickup {
+        var request = makeRequest(path: Self.pickupPath(confirmationNumber))
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (status, data, response) = try await send(request)
+        guard (200..<300).contains(status) else { throw mapPickupStatus(status, data: data) }
+
+        guard let etag = Self.etag(response) else {
+            throw USPSError.unexpected(status: status,
+                                       body: "USPS didn't send an ETag for this pickup, so it can't be changed or cancelled.")
+        }
+        return try Self.decodeFetched(data, etag: etag)
+    }
+
+    func updatePickup(confirmationNumber: String, etag: String, request pickup: SchedulePickupRequest,
+                      token: String) async throws -> FetchedPickup {
+        var request = makeRequest(path: Self.pickupPath(confirmationNumber))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(etag, forHTTPHeaderField: "If-Match")
+        request.httpBody = try Self.makeEncoder().encode(UpdatePickupBody(request: pickup))
+
+        let (status, data, response) = try await send(request)
+        guard (200..<300).contains(status) else { throw mapPickupStatus(status, data: data) }
+        // The new ETag is only needed for a further change, so a missing one
+        // does not make a successful update fail.
+        return try Self.decodeFetched(data, etag: Self.etag(response) ?? "")
+    }
+
+    func cancelPickup(confirmationNumber: String, etag: String, token: String) async throws {
+        var request = makeRequest(path: Self.pickupPath(confirmationNumber))
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(etag, forHTTPHeaderField: "If-Match")
+
+        let (status, data, _) = try await send(request)
+        // 200 with an empty body.
+        guard (200..<300).contains(status) else { throw mapPickupStatus(status, data: data) }
+    }
+
+    private static func pickupPath(_ confirmationNumber: String) -> String {
+        "/pickup/v3/carrier-pickup/\(confirmationNumber)"
+    }
+
+    /// `HTTPURLResponse` looks header names up case-insensitively, so this
+    /// reads both `ETag` and HTTP/2's `etag`.
+    private static func etag(_ response: HTTPURLResponse) -> String? {
+        response.value(forHTTPHeaderField: "ETag")?.nonEmpty
+    }
+
+    private static func decodeFetched(_ data: Data, etag: String) throws -> FetchedPickup {
+        do {
+            let body = try JSONDecoder().decode(FetchedPickupResponse.self, from: data)
+            return FetchedPickup(confirmation: body.confirmation, request: body.request, etag: etag)
+        } catch {
+            throw USPSError.decoding(String(describing: error))
+        }
+    }
+
+    /// `mapStatus`, plus 404 meaning "no such pickup" — which is only true
+    /// for the single-pickup endpoints.
+    private func mapPickupStatus(_ status: Int, data: Data) -> USPSError {
+        if status == 404 { return .notFound(message: Self.notFoundMessage) }
+        return mapStatus(status, data: data)
+    }
+
     // MARK: - Plumbing
 
     private func makeRequest(path: String) -> URLRequest {
         URLRequest(url: baseURL.appendingPathComponent(path), timeoutInterval: Self.timeout)
     }
 
-    /// Performs `request`, returning the status code and body, and translating
-    /// `URLError`s into `USPSError`.
-    private func send(_ request: URLRequest) async throws -> (Int, Data) {
+    /// Performs `request`, returning the status code, body and response, and
+    /// translating `URLError`s into `USPSError`.
+    private func send(_ request: URLRequest) async throws -> (Int, Data, HTTPURLResponse) {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw USPSError.unexpected(status: 0, body: "Response was not an HTTP response.")
             }
-            return (http.statusCode, data)
+            return (http.statusCode, data, http)
         } catch let error as USPSError {
             throw error
         } catch let error as URLError {
@@ -312,6 +391,124 @@ private struct ConfirmationResponse: Decodable {
                                       debugDescription: "No confirmationNumber/pickupDate at the top level or under carrierPickupRequest."))
         }
         confirmation = PickupConfirmation(confirmationNumber: number, pickupDate: date)
+    }
+}
+
+/// `PUT /carrier-pickup/{confirmationNumber}`'s body:
+/// `{"pickupDate": …, "carrierPickupRequest": <SchedulePickupRequest>}`, the
+/// inner request without `nextAvailablePickup` — a change names its day.
+private struct UpdatePickupBody: Encodable {
+    var request: SchedulePickupRequest
+
+    private enum CodingKeys: String, CodingKey {
+        case pickupDate, carrierPickupRequest
+    }
+
+    private struct Inner: Encodable {
+        var request: SchedulePickupRequest
+
+        private enum CodingKeys: String, CodingKey {
+            case pickupDate, pickupAddress, packages, estimatedWeight, pickupLocation
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(request.pickupDate, forKey: .pickupDate)
+            try container.encode(request.pickupAddress, forKey: .pickupAddress)
+            try container.encode(request.packages, forKey: .packages)
+            try container.encode(request.estimatedWeight, forKey: .estimatedWeight)
+            try container.encode(request.pickupLocation, forKey: .pickupLocation)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(request.pickupDate, forKey: .pickupDate)
+        try container.encode(Inner(request: request), forKey: .carrierPickupRequest)
+    }
+}
+
+/// The GET/PUT response: `confirmationNumber` and `pickupDate` at the top
+/// level (read the same way as a schedule response), and the pickup's details
+/// under `carrierPickupRequest`. The details are read leniently and are
+/// optional: a quirk in them must not lose the confirmation or the ETag.
+/// The OpenAPI document describes GET as returning an array; the live API
+/// returns an object, and both are accepted.
+private struct FetchedPickupResponse: Decodable {
+    var confirmation: PickupConfirmation
+    var request: SchedulePickupRequest?
+
+    private enum CodingKeys: String, CodingKey {
+        case carrierPickupRequest
+    }
+
+    init(from decoder: Decoder) throws {
+        if var array = try? decoder.unkeyedContainer() {
+            self = try array.decode(FetchedPickupResponse.self)
+            return
+        }
+        confirmation = try ConfirmationResponse(from: decoder).confirmation
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        request = (try? container.decode(LenientPickupRequest.self, forKey: .carrierPickupRequest))?.request
+    }
+}
+
+/// `carrierPickupRequest` as USPS echoes it: no `nextAvailablePickup`,
+/// contact entries that may be `{}` or `{"cellNumber":"nullnullnull"}`, and
+/// numbers that may arrive as strings.
+private struct LenientPickupRequest: Decodable {
+    var request: SchedulePickupRequest
+
+    private enum CodingKeys: String, CodingKey {
+        case pickupDate, pickupAddress, packages, estimatedWeight, pickupLocation
+    }
+
+    private enum AddressKeys: String, CodingKey {
+        case firstName, lastName, firm, address, contact
+    }
+
+    /// Decodes anything, so one odd contact entry cannot fail the array.
+    private struct MaybeContact: Decodable {
+        var entry: ContactEntry?
+        init(from decoder: Decoder) throws { entry = try? ContactEntry(from: decoder) }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let address = try container.nestedContainer(keyedBy: AddressKeys.self, forKey: .pickupAddress)
+        let contacts = (try? address.decode([MaybeContact].self, forKey: .contact)) ?? []
+        let pickupAddress = PickupAddress(
+            firstName: try address.decodeIfPresent(String.self, forKey: .firstName) ?? "",
+            lastName: try address.decodeIfPresent(String.self, forKey: .lastName) ?? "",
+            firm: (try? address.decodeIfPresent(String.self, forKey: .firm))?.nonEmpty,
+            address: try address.decode(PostalAddress.self, forKey: .address),
+            contact: contacts.compactMap(\.entry).filter(Self.isUsable))
+
+        let weight: Double
+        if let number = try? container.decode(Double.self, forKey: .estimatedWeight) {
+            weight = number
+        } else {
+            weight = Double(try container.decode(String.self, forKey: .estimatedWeight)) ?? 0
+        }
+
+        request = SchedulePickupRequest(
+            pickupDate: try container.decode(String.self, forKey: .pickupDate),
+            pickupAddress: pickupAddress,
+            packages: try container.decode([PackageLine].self, forKey: .packages),
+            estimatedWeight: weight,
+            pickupLocation: try container.decode(PickupLocation.self, forKey: .pickupLocation),
+            nextAvailablePickup: false)
+    }
+
+    /// A real email, or a 10-digit cell number. `{}` reads as `.email(nil)`.
+    private static func isUsable(_ entry: ContactEntry) -> Bool {
+        switch entry {
+        case .email(let value):
+            return value?.nonEmpty?.contains("@") ?? false
+        case .cellNumber(let value):
+            guard let value else { return false }
+            return value.count == 10 && value.allSatisfy(\.isASCIIDigit)
+        }
     }
 }
 

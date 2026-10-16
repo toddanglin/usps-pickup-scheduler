@@ -39,9 +39,38 @@ struct PickupDraft: Equatable {
             hazmatConfirmed: false)
     }
 
+    /// A draft for changing an existing pickup: what USPS has for it, or,
+    /// when USPS's copy could not be read, what PickupBar recorded. The day
+    /// stays selected only if it is still on offer (`availableDates`);
+    /// otherwise the first available day is. The hazmat promise is never
+    /// carried over.
+    @MainActor
+    static func forModifying(_ record: PickupRecord, fetched: SchedulePickupRequest?,
+                             settings: SettingsStore, now: Date = Date()) -> PickupDraft {
+        var draft = fromDefaults(settings, now: now)
+        let lines = fetched?.packages ?? record.packages
+        for line in lines { draft.counts[line.packageType, default: 0] += line.packageCount }
+        if let fetched {
+            draft.location = fetched.pickupLocation.packageLocation
+            draft.instructions = fetched.pickupLocation.specialInstructions ?? ""
+            draft.dogPresent = fetched.pickupLocation.dogPresent
+            draft.weight = fetched.estimatedWeight
+        } else {
+            draft.location = record.location
+            if record.estimatedWeight > 0 { draft.weight = record.estimatedWeight }
+        }
+        let wanted = fetched?.pickupDate ?? record.pickupDate
+        let offered = PickupDateCalculator.availableDates(from: now)
+        draft.selectedDate = offered.first { PickupDateCalculator.apiDateString($0) == wanted } ?? offered[0]
+        draft.hazmatConfirmed = false
+        return draft
+    }
+
     /// Builds the USPS wire request. Only package types with a count above
-    /// zero are included, in `PackageType.allCases` order.
-    func request(address: PostalAddress, contact: PickupContact) -> SchedulePickupRequest {
+    /// zero are included, in `PackageType.allCases` order. A change to an
+    /// existing pickup passes `nextAvailablePickup: false`: it names its day.
+    func request(address: PostalAddress, contact: PickupContact,
+                 nextAvailablePickup: Bool = true) -> SchedulePickupRequest {
         let packages: [PackageLine] = PackageType.allCases.compactMap { type in
             let count = counts[type] ?? 0
             guard count > 0 else { return nil }
@@ -56,6 +85,6 @@ struct PickupDraft: Equatable {
             pickupLocation: PickupLocation(packageLocation: location,
                                            specialInstructions: trimmed.isEmpty ? nil : trimmed,
                                            dogPresent: dogPresent),
-            nextAvailablePickup: true)
+            nextAvailablePickup: nextAvailablePickup)
     }
 }

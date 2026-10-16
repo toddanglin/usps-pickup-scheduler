@@ -20,6 +20,18 @@ final class AppState: ObservableObject {
     /// Scopes the last token carried, for Settings › Account. Empty when no
     /// token has been fetched yet or USPS did not list any.
     @Published private(set) var grantedScopes: [String] = []
+    /// Whether `.confirmed` is showing a new pickup or a changed one.
+    @Published private(set) var confirmationMode: ConfirmationMode = .scheduled
+    /// The pickup the form is modifying, with the ETag from its last GET.
+    @Published private(set) var pendingEdit: PendingEdit?
+    /// Where the error screen's button goes: the form for a failed schedule,
+    /// the history for a failed load or cancel, the edit form for a failed
+    /// save.
+    @Published private(set) var retryFlow: FlowState = .form
+
+    /// True when the error screen leads back to the history rather than to
+    /// something that will try again, so its button should say "Back".
+    var retryReturnsToHistory: Bool { retryFlow == .history }
 
     let settings: SettingsStore
 
@@ -183,6 +195,7 @@ final class AppState: ObservableObject {
               let contact = settings.contact else { return }
 
         flow = .scheduling
+        retryFlow = .form
         do {
             let request = draft.request(address: address, contact: contact)
             let confirmation = try await withFreshTokenRetry { token in
@@ -194,16 +207,127 @@ final class AppState: ObservableObject {
             settings.addToHistory(PickupRecord(confirmation: confirmation,
                                                request: request,
                                                createdAt: now()))
+            confirmationMode = .scheduled
             flow = .confirmed(confirmation)
-        } catch let error as USPSError {
-            if error == .invalidCredentials {
-                handleInvalidCredentials()
-            } else {
-                let error = await enriched(error)
-                flow = .failed(error, retryable: error.isRetryable)
-            }
         } catch {
+            await fail(error)
+        }
+    }
+
+    // MARK: - Modify / cancel
+
+    /// History → the form, filled in with the pickup as USPS has it.
+    func beginModify(_ record: PickupRecord) async {
+        guard flow == .history else { return }
+        let number = record.confirmationNumber
+        flow = .working("Loading pickup…")
+        retryFlow = .history
+        do {
+            let fetched = try await withFreshTokenRetry { token in
+                try await self.api.fetchPickup(confirmationNumber: number, token: token)
+            }
+            draft = PickupDraft.forModifying(record, fetched: fetched.request,
+                                             settings: settings, now: now())
+            pendingEdit = PendingEdit(confirmationNumber: number, etag: fetched.etag)
+            flow = .modifying(confirmationNumber: number)
+        } catch {
+            await fail(error)
+        }
+    }
+
+    /// "Save Changes": sends the draft as a PUT. The ETag is fetched again
+    /// right before, since it lasts only an hour and the form may have been
+    /// open longer than that.
+    func saveModification() async {
+        guard draft.canSubmit,
+              let edit = pendingEdit,
+              flow == .modifying(confirmationNumber: edit.confirmationNumber),
+              let address = settings.address,
+              let contact = settings.contact else { return }
+
+        let number = edit.confirmationNumber
+        flow = .working("Updating your pickup…")
+        retryFlow = .modifying(confirmationNumber: number)
+        do {
+            let request = draft.request(address: address, contact: contact, nextAvailablePickup: false)
+            let fresh = try await withFreshTokenRetry { token in
+                try await self.api.fetchPickup(confirmationNumber: number, token: token)
+            }
+            pendingEdit = PendingEdit(confirmationNumber: number, etag: fresh.etag)
+            let updated = try await withFreshTokenRetry { token in
+                try await self.api.updatePickup(confirmationNumber: number, etag: fresh.etag,
+                                                request: request, token: token)
+            }
+            // The number is the one that was edited, whatever USPS echoes.
+            let confirmation = PickupConfirmation(confirmationNumber: number,
+                                                  pickupDate: updated.confirmation.pickupDate)
+            if let existing = settings.history.first(where: { $0.confirmationNumber == number }) {
+                settings.updateHistory(existing.updated(confirmation: confirmation, request: request, at: now()))
+            } else {
+                var record = PickupRecord(confirmation: confirmation, request: request, createdAt: now())
+                record.updatedAt = now()
+                settings.addToHistory(record)
+            }
+            if settings.lastConfirmation?.confirmationNumber == number {
+                settings.lastConfirmation = confirmation
+            }
+            pendingEdit = nil
+            confirmationMode = .updated
+            flow = .confirmed(confirmation)
+        } catch {
+            await fail(error)
+        }
+    }
+
+    /// "Discard": drop the edit and go back to the history.
+    func cancelModification() {
+        guard case .modifying = flow else { return }
+        pendingEdit = nil
+        draft = PickupDraft.fromDefaults(settings, now: now())
+        flow = .history
+    }
+
+    /// Cancels the pickup with USPS: a GET for a fresh ETag, then the DELETE.
+    /// USPS saying it is already cancelled counts as success.
+    func cancelPickup(_ record: PickupRecord) async {
+        guard flow == .history else { return }
+        let number = record.confirmationNumber
+        flow = .working("Cancelling your pickup…")
+        retryFlow = .history
+        do {
+            do {
+                let fetched = try await withFreshTokenRetry { token in
+                    try await self.api.fetchPickup(confirmationNumber: number, token: token)
+                }
+                try await withFreshTokenRetry { token in
+                    try await self.api.cancelPickup(confirmationNumber: number, etag: fetched.etag,
+                                                    token: token)
+                }
+            } catch let error as USPSError where error.isAlreadyCancelled {
+                // Cancelled elsewhere (or by an earlier attempt): same outcome.
+            }
+            var cancelled = settings.history.first { $0.confirmationNumber == number } ?? record
+            cancelled.status = .cancelled
+            cancelled.updatedAt = now()
+            settings.updateHistory(cancelled)
+            flow = .history
+        } catch {
+            await fail(error)
+        }
+    }
+
+    /// Shows `error`, or the credentials screen when it is a credential
+    /// rejection. `retryFlow` must already say where "Try again" goes.
+    private func fail(_ error: Error) async {
+        guard let error = error as? USPSError else {
             flow = .failed(.unexpected(status: 0, body: "\(error)"), retryable: true)
+            return
+        }
+        if error == .invalidCredentials {
+            handleInvalidCredentials()
+        } else {
+            let error = await enriched(error)
+            flow = .failed(error, retryable: error.isRetryable)
         }
     }
 
@@ -237,9 +361,11 @@ final class AppState: ObservableObject {
         flow = .form
     }
 
-    /// Error screen → back to the form, keeping what the user entered.
+    /// Error screen → back to where the failed request started (the form,
+    /// the edit form, or the history), keeping what the user entered.
     func retry() {
-        flow = .form
+        flow = retryFlow
+        retryFlow = .form
     }
 
     // MARK: - Environment

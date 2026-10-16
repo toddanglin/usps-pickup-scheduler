@@ -56,4 +56,40 @@ final class PickupRecordTests: XCTestCase {
         XCTAssertEqual(decoded, r)
         XCTAssertEqual(decoded.id, "WTC1")
     }
+
+    // MARK: - Status
+
+    func testNewRecordsAreScheduled() {
+        XCTAssertEqual(record("2026-10-03").status, .scheduled)
+        XCTAssertNil(record("2026-10-03").updatedAt)
+    }
+
+    func testCancelledIsNeverUpcoming() {
+        let now = chicago(2026, 10, 3, 9)
+        var r = record("2026-10-05")
+        r.status = .cancelled
+        XCTAssertFalse(r.isUpcoming(asOf: now))
+    }
+
+    func testStatusAndUpdatedAtRoundTrip() throws {
+        var r = record("2026-10-05")
+        r.status = .cancelled
+        r.updatedAt = Date(timeIntervalSince1970: 2_000_000)
+        let decoded = try JSONDecoder().decode(PickupRecord.self, from: JSONEncoder().encode(r))
+        XCTAssertEqual(decoded, r)
+    }
+
+    func testRecordWithoutStatusDecodesAsScheduled() throws {
+        let json = #"{"confirmationNumber":"WTC1","pickupDate":"2026-10-03","createdAt":0,"packages":[],"totalPackages":0,"estimatedWeight":0,"location":"PORCH","addressLine":""}"#
+        let decoded = try JSONDecoder().decode(PickupRecord.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.status, .scheduled)
+        XCTAssertNil(decoded.updatedAt)
+        XCTAssertEqual(decoded.location, .porch)
+    }
+
+    func testUnknownStatusDecodesAsScheduled() throws {
+        let json = #"{"confirmationNumber":"WTC1","pickupDate":"2026-10-03","createdAt":0,"packages":[],"totalPackages":0,"estimatedWeight":0,"location":"PORCH","addressLine":"","status":"rescheduled"}"#
+        let decoded = try JSONDecoder().decode(PickupRecord.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.status, .scheduled)
+    }
 }

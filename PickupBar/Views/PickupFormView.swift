@@ -18,6 +18,12 @@ struct PickupFormView: View {
         }
     }
 
+    /// The pickup being modified, or nil for a new one.
+    private var editingNumber: String? {
+        if case .modifying(let number) = state.flow { return number }
+        return nil
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let warning = state.scopeWarning {
@@ -29,18 +35,39 @@ struct PickupFormView: View {
             packagesSection
             weightSection
             hazmatToggle
-            PrimaryButton("Schedule Pickup", isEnabled: state.draft.canSubmit) {
-                Task { await state.schedule() }
+            if editingNumber != nil {
+                PrimaryButton("Save Changes", isEnabled: state.draft.canSubmit) {
+                    Task { await state.saveModification() }
+                }
+                .accessibilityIdentifier("form.save")
+                Button("Discard") { state.cancelModification() }
+                    .buttonStyle(.borderless)
+                    .font(.callout)
+                    .frame(maxWidth: .infinity)
+                    .help("Leave the pickup as it is")
+                    .accessibilityIdentifier("form.discard")
+            } else {
+                PrimaryButton("Schedule Pickup", isEnabled: state.draft.canSubmit) {
+                    Task { await state.schedule() }
+                }
+                .accessibilityIdentifier("form.schedule")
             }
-            .accessibilityIdentifier("form.schedule")
         }
         .padding(Style.outerPadding)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Schedule a pickup")
+            Text(editingNumber == nil ? "Schedule a pickup" : "Modify pickup")
                 .font(.headline)
+                .accessibilityIdentifier("form.title")
+            if let number = editingNumber {
+                Text(number)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("form.editingNumber")
+            }
             if let address = settings.address {
                 Text("\(address.streetAddress), \(address.city) \(address.state)")
                     .font(.caption)
@@ -48,7 +75,7 @@ struct PickupFormView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            if let last = settings.lastConfirmation {
+            if editingNumber == nil, let last = settings.lastConfirmation {
                 Button {
                     state.showHistory()
                 } label: {

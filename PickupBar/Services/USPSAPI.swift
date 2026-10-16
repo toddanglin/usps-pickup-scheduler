@@ -39,11 +39,33 @@ struct OAuthToken: Codable, Equatable, Sendable {
     }
 }
 
-/// The three USPS calls PickupBar makes. Implemented by `LiveUSPSClient` and
-/// by fakes in tests.
+/// A pickup as `GET /carrier-pickup/{confirmationNumber}` (or a `PUT`) returns
+/// it, plus the entity tag a following `PUT` or `DELETE` must send back.
+struct FetchedPickup: Equatable, Sendable {
+    var confirmation: PickupConfirmation
+    /// The pickup's details, from `carrierPickupRequest`. Nil when USPS sent
+    /// something PickupBar could not read; the confirmation is still usable.
+    /// `nextAvailablePickup` is always false, and contact entries USPS
+    /// echoes as `{}` or junk are already stripped.
+    var request: SchedulePickupRequest?
+    /// Good for one hour, or until it is used by a `PUT` or `DELETE`.
+    var etag: String
+}
+
+/// The USPS calls PickupBar makes. Implemented by `LiveUSPSClient` and by
+/// fakes in tests.
 protocol USPSAPI: Sendable {
     func fetchToken(clientID: String, clientSecret: String) async throws -> OAuthToken
     /// Returns the USPS-standardized form of `address`.
     func checkEligibility(_ address: PostalAddress, token: String) async throws -> PostalAddress
     func schedulePickup(_ request: SchedulePickupRequest, token: String) async throws -> PickupConfirmation
+    /// `GET /carrier-pickup/{confirmationNumber}`. USPS has no status field:
+    /// a cancelled pickup reads back exactly like a scheduled one.
+    func fetchPickup(confirmationNumber: String, token: String) async throws -> FetchedPickup
+    /// `PUT /carrier-pickup/{confirmationNumber}` with `If-Match: etag`.
+    /// `request.nextAvailablePickup` is never sent.
+    func updatePickup(confirmationNumber: String, etag: String, request: SchedulePickupRequest,
+                      token: String) async throws -> FetchedPickup
+    /// `DELETE /carrier-pickup/{confirmationNumber}` with `If-Match: etag`.
+    func cancelPickup(confirmationNumber: String, etag: String, token: String) async throws
 }

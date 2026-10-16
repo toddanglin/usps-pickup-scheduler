@@ -8,6 +8,21 @@ import Foundation
 /// its own record of the pickups it scheduled. Pickups made on usps.com or in
 /// another app never appear here.
 struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
+    /// What PickupBar last did to the pickup. USPS has no status field — a
+    /// cancelled pickup still reads back from GET like a scheduled one — so
+    /// this is only ever known locally.
+    enum Status: String, Codable, Sendable {
+        case scheduled
+        case cancelled
+
+        /// Unknown values (from a newer version of the app) read as
+        /// `.scheduled`, so the record keeps its actions.
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Status(rawValue: raw) ?? .scheduled
+        }
+    }
+
     var confirmationNumber: String
     /// "yyyy-MM-dd", as USPS confirmed it (which may differ from the date the
     /// user asked for).
@@ -21,8 +36,16 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
     var location: PackageLocation
     /// e.g. "43 S SPRING TRELLIS CIR, THE WOODLANDS TX".
     var addressLine: String
+    var status: Status = .scheduled
+    /// When the pickup was last changed or cancelled from PickupBar.
+    var updatedAt: Date?
 
     var id: String { confirmationNumber }
+
+    private enum CodingKeys: String, CodingKey {
+        case confirmationNumber, pickupDate, createdAt, packages, totalPackages, estimatedWeight,
+             location, addressLine, status, updatedAt
+    }
 
     init(confirmationNumber: String,
          pickupDate: String,
@@ -40,6 +63,22 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
         self.estimatedWeight = estimatedWeight
         self.location = location
         self.addressLine = addressLine
+    }
+
+    /// `status` and `updatedAt` are absent from records written before
+    /// modify/cancel existed.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        confirmationNumber = try container.decode(String.self, forKey: .confirmationNumber)
+        pickupDate = try container.decode(String.self, forKey: .pickupDate)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        packages = try container.decode([PackageLine].self, forKey: .packages)
+        totalPackages = try container.decode(Int.self, forKey: .totalPackages)
+        estimatedWeight = try container.decode(Double.self, forKey: .estimatedWeight)
+        location = try container.decode(PackageLocation.self, forKey: .location)
+        addressLine = try container.decode(String.self, forKey: .addressLine)
+        status = (try? container.decodeIfPresent(Status.self, forKey: .status)) ?? .scheduled
+        updatedAt = try? container.decodeIfPresent(Date.self, forKey: .updatedAt)
     }
 
     /// The record for a pickup that was just scheduled from `request`.
@@ -69,14 +108,35 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
         return parser.date(from: pickupDate)
     }
 
-    /// True when the pickup day (America/Chicago) is today or later. A date
-    /// that cannot be parsed counts as upcoming, so it is never hidden among
-    /// past pickups by mistake.
+    /// True when the pickup is still scheduled and its day (America/Chicago)
+    /// is today or later. A date that cannot be parsed counts as upcoming, so
+    /// it is never hidden among past pickups by mistake.
     func isUpcoming(asOf now: Date) -> Bool {
+        guard status == .scheduled else { return false }
         guard let day = pickupDay else { return true }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = PickupDateCalculator.timeZone
         return day >= calendar.startOfDay(for: now)
+    }
+
+    /// The record after a successful PUT: USPS's date, and what was sent.
+    func updated(confirmation: PickupConfirmation, request: SchedulePickupRequest,
+                 at date: Date) -> PickupRecord {
+        var copy = self
+        copy.pickupDate = confirmation.pickupDate
+        copy.packages = request.packages
+        copy.totalPackages = request.packages.reduce(0) { $0 + $1.packageCount }
+        copy.estimatedWeight = request.estimatedWeight
+        copy.location = request.pickupLocation.packageLocation
+        copy.status = .scheduled
+        copy.updatedAt = date
+        return copy
+    }
+
+    /// e.g. "Saturday, October 3"; the raw string if it cannot be parsed.
+    var longDisplayDate: String {
+        guard let day = pickupDay else { return pickupDate }
+        return PickupDateCalculator.longDisplay(day)
     }
 
     /// e.g. "Sat, Oct 3"; the raw string if it cannot be parsed.

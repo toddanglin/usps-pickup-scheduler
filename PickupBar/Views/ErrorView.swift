@@ -14,6 +14,12 @@ struct ErrorView: View {
         }
     }
 
+    /// "Try again" only when the button really will: an error from a history
+    /// action (loading or cancelling a pickup) just goes back to the list.
+    private var retryTitle: String {
+        retryable && !state.retryReturnsToHistory ? "Try again" : "Back"
+    }
+
     /// True when the fix is in the USPS Developer Portal, not in PickupBar.
     private var suggestsPortal: Bool {
         if case .insufficientScope = error { return true }
@@ -64,12 +70,12 @@ struct ErrorView: View {
                     SettingsButton { Text("Open Settings").frame(maxWidth: .infinity) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
-                    Button(retryable ? "Try again" : "Back") { state.retry() }
+                    Button(retryTitle) { state.retry() }
                         .buttonStyle(.borderless)
                         .font(.caption)
                         .accessibilityIdentifier("error.retry")
                 } else {
-                    PrimaryButton(retryable ? "Try again" : "Back") { state.retry() }
+                    PrimaryButton(retryTitle) { state.retry() }
                         .accessibilityIdentifier("error.retry")
                 }
             }

@@ -206,6 +206,27 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(SettingsStore(defaults: defaults).history.map(\.confirmationNumber), ["WTC2"])
     }
 
+    func testUpdateHistoryReplacesInPlaceByConfirmationNumber() {
+        let store = SettingsStore(defaults: defaults)
+        store.addToHistory(record("WTC1"))
+        store.addToHistory(record("WTC2"))
+        var changed = record("WTC1", date: "2026-10-09")
+        changed.status = .cancelled
+        store.updateHistory(changed)
+
+        XCTAssertEqual(store.history.map(\.confirmationNumber), ["WTC2", "WTC1"], "order is kept")
+        XCTAssertEqual(store.history.last?.status, .cancelled)
+        XCTAssertEqual(store.history.last?.pickupDate, "2026-10-09")
+        XCTAssertEqual(SettingsStore(defaults: defaults).history.last?.status, .cancelled)
+    }
+
+    func testUpdateHistoryIgnoresAnUnknownRecord() {
+        let store = SettingsStore(defaults: defaults)
+        store.addToHistory(record("WTC1"))
+        store.updateHistory(record("WTC9"))
+        XCTAssertEqual(store.history.map(\.confirmationNumber), ["WTC1"])
+    }
+
     func testOldSnapshotWithLastConfirmationSeedsHistory() throws {
         // Written by a version without `history`.
         let json = #"""
