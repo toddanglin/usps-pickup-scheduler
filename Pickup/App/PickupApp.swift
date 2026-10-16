@@ -40,8 +40,11 @@ struct PickupApp: App {
             settings = SettingsStore(defaults: UserDefaults(suiteName: suite) ?? .standard)
             keychain = UITestCredentialStore(suiteName: suite)
         } else {
-            settings = SettingsStore()
             keychain = KeychainStore()
+            // Before `SettingsStore` loads, so settings copied from a
+            // PickupBar install are what it reads. Runs once.
+            LegacyMigration.runIfNeeded(keychain: keychain)
+            settings = SettingsStore()
         }
 
         _state = StateObject(wrappedValue: AppState(settings: settings,

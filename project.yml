@@ -39,6 +39,11 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        # Read-only, and only PickupBar's own preferences plist: the one-time
+        # migration from the app's old name (Pickup/App/LegacyMigration.swift)
+        # copies the saved settings out of PickupBar's sandbox container.
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /Library/Containers/com.toddanglin.PickupBar/Data/Library/Preferences/com.toddanglin.PickupBar.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.toddanglin.Pickup
