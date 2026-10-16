@@ -12,7 +12,10 @@ struct DefaultsSettingsTab: View {
                         Text(location.displayName).tag(location)
                     }
                 }
-                TextField("Special instructions", text: $settings.defaultInstructions)
+                // A grouped Form draws this field borderless, so an empty one
+                // would look like a bare label without a prompt.
+                TextField("Special instructions", text: $settings.defaultInstructions,
+                          prompt: Text("None"))
                 if settings.defaultLocation == .other,
                    settings.defaultInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("Instructions are required when the location is Other")
@@ -21,7 +24,9 @@ struct DefaultsSettingsTab: View {
                 }
                 Toggle("Dog on premises", isOn: $settings.dogPresent)
                 LabeledContent("Estimated weight") {
-                    WeightField(weight: $settings.defaultWeight, minimum: 0.1)
+                    WeightField(weight: $settings.defaultWeight, minimum: 0.1,
+                                identifier: "defaults.weight", label: "Estimated weight")
+                        .fixedSize()
                 }
             } footer: {
                 Text("New pickups start with these values. You can change them per pickup.")

@@ -25,6 +25,10 @@ targets:
       properties:
         CFBundleDisplayName: PickupBar
         CFBundleName: PickupBar
+        # Without these XcodeGen writes a literal "1.0" / "1", and Settings ›
+        # General would not show MARKETING_VERSION.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: "© 2026 Todd Anglin. MIT License."

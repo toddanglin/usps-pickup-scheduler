@@ -263,7 +263,32 @@ final class PickupBarUITests: XCTestCase {
 
         let settingsWindow = settingsWindowIfOpened(timeout: 5)
         if let settingsWindow {
+            // The Settings window reopens on whichever tab was last chosen,
+            // even across runs, so pick Account explicitly.
+            if let accountTab = settingsTab("Account", in: settingsWindow) {
+                accountTab.click()
+            }
             screenshot("07-settings", window: settingsWindow)
+
+            // Settings › Defaults: the "Estimated weight" row must be one line
+            // (it once wrapped to "Weig/ht" beside the field).
+            if let defaultsTab = settingsTab("Defaults", in: settingsWindow) {
+                mark("clicking defaults tab")
+                defaultsTab.click()
+                let weight = settingsWindow.textFields["defaults.weight"]
+                require(weight, "defaults weight field", timeout: 5)
+                screenshot("07b-settings-defaults", window: settingsWindow)
+                XCTAssertLessThan(weight.frame.height, 30,
+                                  "The default weight field is taller than one line: \(weight.frame)")
+            }
+
+            // Settings › General shows MARKETING_VERSION.
+            if let generalTab = settingsTab("General", in: settingsWindow) {
+                generalTab.click()
+                screenshot("07c-settings-general", window: settingsWindow)
+            }
+            // Leave Account selected for the next run and for real use.
+            settingsTab("Account", in: settingsWindow)?.click()
         } else {
             screenshot("07-settings-missing")
             XCTFail("""
@@ -443,6 +468,13 @@ final class PickupBarUITests: XCTestCase {
         case let number as Int: return number
         default: return nil
         }
+    }
+
+    /// A Settings tab's toolbar button, or nil (and a failure) if it is missing.
+    private func settingsTab(_ title: String, in window: XCUIElement) -> XCUIElement? {
+        let inToolbar = window.toolbars.buttons[title]
+        let tab = inToolbar.waitForExistence(timeout: 5) ? inToolbar : window.buttons[title]
+        return require(tab, "settings \(title) tab", timeout: 5) ? tab : nil
     }
 
     private func settingsWindowIfOpened(timeout: TimeInterval) -> XCUIElement? {

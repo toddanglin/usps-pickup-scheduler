@@ -13,13 +13,20 @@ struct WeightField: View {
     /// allows 0 (which simply disables submitting); a default must be usable.
     var minimum: Double = 0
     var identifier: String?
+    /// What VoiceOver calls the field. It is never drawn: callers label the
+    /// field themselves (the form's "WEIGHT" header, the Defaults row's
+    /// "Estimated weight"). Inside a grouped `Form` a visible TextField title
+    /// would be laid out as a second row label and squeezed to "Weig/ht".
+    var label: String = "Weight"
 
     @State private var text: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                TextField("Weight", text: $text)
+                TextField(label, text: $text, prompt: Text("Weight"))
+                    .labelsHidden()
+                    .accessibilityLabel(label)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 80)
                     .multilineTextAlignment(.trailing)
