@@ -1,5 +1,5 @@
 #!/bin/sh
-# Diagnose USPS API credentials for PickupBar.
+# Diagnose USPS API credentials for Pickup.
 #
 # Usage (run in Terminal; it prompts, so it needs an interactive shell):
 #   sh Scripts/check-credentials.sh

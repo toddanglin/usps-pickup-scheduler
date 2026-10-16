@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-mock-server.py -- local mock of the USPS API for manual QA of PickupBar.
+mock-server.py -- local mock of the USPS API for manual QA of Pickup.
 
-PickupBar is a macOS menu bar app that schedules USPS carrier pickups. This
+Pickup is a macOS menu bar app that schedules USPS carrier pickups. This
 script stands in for the real USPS OAuth + Carrier Pickup APIs so you can
 exercise the app's happy paths and error paths without hitting production.
 
@@ -13,8 +13,8 @@ Usage:
     # 1. Start the mock server (default port 8787):
     python3 Scripts/mock-server.py
 
-    # 2. Point PickupBar at it and launch the app:
-    PICKUPBAR_BASE_URL=http://127.0.0.1:8787 open .build/dd/Build/Products/Debug/PickupBar.app
+    # 2. Point Pickup at it and launch the app:
+    PICKUP_BASE_URL=http://127.0.0.1:8787 open .build/dd/Build/Products/Debug/Pickup.app
 
     # Force the schedule-pickup endpoint to fail with a specific status,
     # to test the app's error handling:
@@ -347,7 +347,7 @@ SCHEDULE_ERROR_BODIES = {
 
 
 class MockHandler(BaseHTTPRequestHandler):
-    server_version = "PickupBarMockUSPS/1.0"
+    server_version = "PickupMockUSPS/1.0"
 
     # -- helpers ---------------------------------------------------------
 
@@ -689,7 +689,7 @@ class MockHandler(BaseHTTPRequestHandler):
 
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), MockHandler)
-    print(f"PickupBar mock USPS server listening on http://127.0.0.1:{PORT}")
+    print(f"Pickup mock USPS server listening on http://127.0.0.1:{PORT}")
     if MOCK_FAIL:
         print(f"MOCK_FAIL={MOCK_FAIL} -- POST /pickup/v3/carrier-pickup will be forced to fail")
     if MOCK_TOKEN_FAIL:

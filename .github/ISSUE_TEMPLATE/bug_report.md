@@ -1,12 +1,12 @@
 ---
 name: Bug report
-about: Something in PickupBar did not work as expected
+about: Something in Pickup did not work as expected
 labels: bug
 ---
 
 **macOS version:** <!-- e.g. 15.3 (Apple menu › About This Mac) -->
 
-**PickupBar version:** <!-- Settings › General › Version -->
+**Pickup version:** <!-- Settings › General › Version -->
 
 **Environment:** <!-- production or USPS test environment (TEM) -->
 

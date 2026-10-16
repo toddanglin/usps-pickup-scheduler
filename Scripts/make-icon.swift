@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 //
 //  make-icon.swift
-//  PickupBar
+//  Pickup
 //
 //  Standalone, dependency-free app icon generator.
 //

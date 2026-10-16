@@ -1,6 +1,6 @@
-# Contributing to PickupBar
+# Contributing to Pickup
 
-Thanks for helping. PickupBar is small on purpose: a menu bar app that does
+Thanks for helping. Pickup is small on purpose: a menu bar app that does
 one thing against one API. Bug fixes and polish are very welcome; for bigger
 features, open an issue first so we can agree on the shape.
 
@@ -13,7 +13,7 @@ The Xcode project is generated and gitignored; run `make generate` after
 pulling or after adding files.
 
 ```sh
-make generate   # PickupBar.xcodeproj from project.yml
+make generate   # Pickup.xcodeproj from project.yml
 make build      # debug build, should be warning-free
 make test       # unit tests (what CI runs)
 make uitest     # end-to-end UI walk against the mock server, with screenshots
@@ -43,7 +43,7 @@ make explainer
 
 `Scripts/mock-server.py` (stdlib only) imitates the USPS endpoints and
 enforces the vendored OpenAPI contract in `docs/usps/carrier-pickup-v3.yaml`.
-Run it and point a debug build at it with `PICKUPBAR_BASE_URL` — see the
+Run it and point a debug build at it with `PICKUP_BASE_URL` — see the
 README's Development section. Please exercise new API behavior against it
 before trying production or the USPS test environment (TEM).
 
@@ -64,7 +64,7 @@ never in tracked files.
 
 ## Reporting USPS API problems
 
-USPS changes its API behavior from time to time. If PickupBar shows an error
+USPS changes its API behavior from time to time. If Pickup shows an error
 you did not expect, open an issue and paste the text from the error screen's
 **Copy details** button (status code and USPS error body), plus whether you
 were on production or TEM. Redact confirmation numbers if you like.

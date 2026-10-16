@@ -1,5 +1,10 @@
 # PickupBar v1 Implementation Plan
 
+> **Historical.** This plan was written and executed when the app was called
+> PickupBar. It was renamed to **Pickup** in 1.0.1 (directories `Pickup/`,
+> `PickupTests/`, `PickupUITests/`; bundle id `com.toddanglin.Pickup`); the
+> names below are as they were at the time. The current state is in the spec.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a native macOS menu bar app that schedules a USPS Carrier Pickup via the USPS v3 API using user-supplied Consumer Key/Secret.

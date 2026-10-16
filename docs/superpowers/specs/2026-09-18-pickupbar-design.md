@@ -1,4 +1,7 @@
-# PickupBar — macOS menu bar utility for USPS Carrier Pickup
+# Pickup — macOS menu bar utility for USPS Carrier Pickup
+
+> Formerly PickupBar: renamed to Pickup in 1.0.1 (see the product-decisions
+> table). This file keeps its original name.
 
 Date: 2026-09-18
 Status: approved (user delegated design decisions)
@@ -61,7 +64,8 @@ repo (MIT).
 
 | Decision | Choice |
 |---|---|
-| App name / bundle id | `PickupBar` / `com.toddanglin.PickupBar` |
+| App name / bundle id | `Pickup` / `com.toddanglin.Pickup` |
+| Rename (1.0.1) | Formerly PickupBar (`com.toddanglin.PickupBar`). `LegacyMigration` runs once at launch: copies `settings.v1` out of PickupBar's sandbox container (read-only temporary-exception entitlement for that one plist), moves Keychain credentials from service `com.toddanglin.PickupBar` to `com.toddanglin.Pickup` and deletes the old items, then sets `migration.legacyPickupBar.done` |
 | Platform | macOS 14.0+, Swift 5 language mode on Swift 6 toolchain, SwiftUI, zero third-party deps |
 | Project generation | XcodeGen `project.yml` (xcodeproj is gitignored; `make generate`) |
 | Menu bar | `MenuBarExtra` with `.window` style; icon SF Symbol `envelope` (template); `envelope.badge` when attention is needed |
@@ -74,7 +78,7 @@ repo (MIT).
 | Confirmation | Big confirmation number, pickup date, copy button, "Schedule another pickup" |
 | Errors | Friendly title + one-line explanation + recovery hint + "Copy details" (status, USPS error body) + primary action (Retry / Open Settings) |
 | Re-auth signal | If token request returns 401/400 invalid_client, credentials marked invalid → badge icon + local notification + onboarding shown |
-| Test environment | Settings toggle "Use USPS test environment (TEM)"; env var `PICKUPBAR_BASE_URL` overrides base for local mock server |
+| Test environment | Settings toggle "Use USPS test environment (TEM)"; env var `PICKUP_BASE_URL` overrides base for local mock server |
 | Launch at login | `SMAppService.mainApp` toggle in Settings |
 | License | MIT |
 
@@ -84,7 +88,7 @@ The Carrier Pickup 3.x API has no fields for terms acceptance, hazardous
 materials, a business/residential flag, or a timed pickup window. So:
 
 - **Business addresses:** no business flag. The address's optional `firm`
-  is the only business signal the API accepts, and PickupBar sends just that.
+  is the only business signal the API accepts, and Pickup sends just that.
 - **Pickup On Demand** (timed, paid) is website-only and out of scope.
 - **Terms and hazmat are reminders, not data.** Onboarding and Settings ›
   Account carry a caption linking the USPS API Terms of Use; the form's
@@ -95,7 +99,7 @@ materials, a business/residential flag, or a timed pickup window. So:
 ## 4. Architecture
 
 ```
-PickupBarApp (MenuBarExtra + Settings scene)
+PickupApp (MenuBarExtra + Settings scene)
  └─ AppState (@MainActor ObservableObject)  ── flow state machine
       ├─ SettingsStore   (UserDefaults JSON)   – address, contact, defaults, env toggle
       ├─ KeychainStore   (Security.framework)  – client id/secret
@@ -242,10 +246,10 @@ extension USPSError {
 ```
 
 User-facing copy:
-- offline: "You're offline" / "PickupBar couldn't reach USPS." / hint "Check your connection and try again."
+- offline: "You're offline" / "Couldn't reach USPS." / hint "Check your connection and try again."
 - invalidCredentials: "USPS rejected your API credentials" / "The Consumer Key or Secret is wrong, expired, or was revoked." / "Open Settings › Account to update them."
 - forbidden: "Your USPS app can't access Carrier Pickup" / "USPS returned 403 Forbidden." / "In the USPS developer portal, make sure your app includes the Carrier Pickup (carrier-pickup) product, or contact USPS API Support."
-- insufficientScope: "Your USPS app can't access Carrier Pickup" / "Your credentials are valid, but the USPS app they belong to doesn't include the Carrier Pickup API product." / "In the USPS Developer Portal, open your app and add the Carrier Pickup (carrier-pickup) API product, or ask USPS API Support to enable it. Then quit and reopen PickupBar."
+- insufficientScope: "Your USPS app can't access Carrier Pickup" / "Your credentials are valid, but the USPS app they belong to doesn't include the Carrier Pickup API product." / "In the USPS Developer Portal, open your app and add the Carrier Pickup (carrier-pickup) API product, or ask USPS API Support to enable it. Then quit and reopen Pickup."
   Raised when a 401 body carries `error.errors[].title == "invalid_oauth_scope"` or an `error.message` mentioning "scope". `granted` is the token's scope list (`OAuthToken.scopes`, parsed from the space-separated `scope`), filled in by `AppState` from `TokenManager.currentScopes()`; the client itself passes `[]`. It is never retried with a fresh token (a new token carries the same scopes) and never routes to re-authentication, because the credentials are valid. `AppState` also detects it up front: after any successful token fetch, a non-empty scope list without `carrier-pickup` (or the older `pickup`; `OAuthToken.scopesAllowPickup` is the single check) sets `scopeWarning`, which the address and pickup screens show as a yellow banner linking to the portal.
 - rateLimited: "Slow down a little" / "USPS is rate-limiting requests from this app." / "Wait a minute and try again."
 - serviceUnavailable: "USPS is having trouble" / "The USPS API is temporarily unavailable." / "Try again in a few minutes."
@@ -253,7 +257,7 @@ User-facing copy:
 - addressNotEligible: "This address isn't eligible for pickup" / message / "Double-check the address, or schedule at usps.com to see alternatives."
 - unexpected: "Something unexpected happened" / "USPS returned status N." / "Copy the details and open an issue if this keeps happening."
   `unexpected(status: 0, …)` is reserved for transport-level failures (no HTTP response), where `body` carries the underlying description and is used as the message verbatim.
-- decoding: "Something unexpected happened" / "PickupBar couldn't read the USPS response." / "The pickup may still have been scheduled. Check usps.com before scheduling again."
+- decoding: "Something unexpected happened" / "The USPS response couldn't be read." / "The pickup may still have been scheduled. Check usps.com before scheduling again."
 
 Retryable: offline, rateLimited, serviceUnavailable, unexpected. **Not** retryable:
 invalidCredentials, forbidden, insufficientScope, badRequest, addressNotEligible, and `decoding` — a decode
@@ -288,9 +292,9 @@ actor TokenManager {
 // Uses the default (file-based) keychain: `kSecUseDataProtectionKeychain` is
 // deliberately NOT set. The data-protection keychain needs an
 // application-identifier / keychain-access-group entitlement, which an ad-hoc
-// signed sandboxed build - how PickupBar is built from source - does not have,
+// signed sandboxed build - how Pickup is built from source - does not have,
 // so SecItemAdd fails with errSecMissingEntitlement (-34018).
-struct KeychainStore {   // service "com.toddanglin.PickupBar", account "usps-consumer-key" / "usps-consumer-secret"
+struct KeychainStore {   // service "com.toddanglin.Pickup", account "usps-consumer-key" / "usps-consumer-secret"
   func loadCredentials() throws -> (id: String, secret: String)?
   func saveCredentials(id: String, secret: String) throws
   func deleteCredentials() throws
@@ -319,7 +323,7 @@ struct PickupDateCalculator {
 }
 ```
 
-Base URL selection: `PICKUPBAR_BASE_URL` env var > TEM toggle > production.
+Base URL selection: `PICKUP_BASE_URL` env var > TEM toggle > production.
 
 ### 4.7 Modify and cancel (added after v1)
 
@@ -410,7 +414,7 @@ style groups, SF Symbols, system fonts. Footer on every screen: gear button
   - Primary button "Schedule Pickup" enabled iff total ≥ 1, weight > 0, hazmat toggled on.
 - **SchedulingView**: animated envelope (subtle pulse/float) + `ProgressView` + "Scheduling your pickup…".
 - **ConfirmationView**: green checkmark, "Pickup scheduled", date in long form, confirmation number in monospaced large text, "Copy" button, primary "Schedule another pickup".
-- **PickupHistoryView** ("Scheduled pickups", added after v1): back chevron, "Upcoming" and "Past" sections (America/Chicago day), each row with date, package summary, monospaced confirmation number, Copy, and a menu to copy or remove from the list (local only). Backed by `SettingsStore.history` (`[PickupRecord]`, newest first, capped at 200, seeded from `lastConfirmation` for older settings). The USPS API only offers GET/PUT/DELETE by confirmation number — there is no list endpoint — so pickups made outside PickupBar are not shown.
+- **PickupHistoryView** ("Scheduled pickups", added after v1): back chevron, "Upcoming" and "Past" sections (America/Chicago day), each row with date, package summary, monospaced confirmation number, Copy, and a menu to copy or remove from the list (local only). Backed by `SettingsStore.history` (`[PickupRecord]`, newest first, capped at 200, seeded from `lastConfirmation` for older settings). The USPS API only offers GET/PUT/DELETE by confirmation number — there is no list endpoint — so pickups made outside Pickup are not shown.
 - Popover sizing: a `MenuBarExtra(.window)` takes the content's ideal height. Screens that may scroll (form, history) use `FittingScrollView`, which measures the content's natural height and only switches to a fixed-height `ScrollView` above the limit; never a bare `ScrollView` (collapses) or `.frame(maxHeight:)` (stretches the window).
 - **ErrorView**: warning icon, title/message/hint, "Copy details", primary "Try again" (if retryable) or "Open Settings".
 - **SettingsView** (`Settings` scene, `TabView`): Account (masked key, status pill, Replace/Remove, TEM toggle), Address (same form as AddressSetupView), Defaults (location, instructions, dog present, weight), General (launch at login, version, GitHub link).
@@ -420,14 +424,14 @@ style groups, SF Symbols, system fonts. Footer on every screen: gear button
 `AppState.needsAttention: Bool`. When true, `MenuBarExtra` label uses
 `envelope.badge`. Set when `invalidCredentials` occurs; cleared when new
 credentials verify. On first occurrence post a `UNUserNotification`
-"PickupBar needs your USPS credentials" (request authorization lazily).
+"Pickup: USPS credentials need attention" (request authorization lazily).
 
 On launch, if credentials exist, `TokenManager.validToken()` runs in the
 background to detect revoked credentials early.
 
 ## 5. Testing
 
-Unit tests (XCTest, `PickupBarTests` target):
+Unit tests (XCTest, `PickupTests` target):
 - Model encoding matches USPS wire JSON (contact array shape, package strings decode).
 - `RequestContractTests` checks requests built by `PickupDraft.request` against constants copied from `docs/usps/carrier-pickup-v3.yaml`: allowed keys, enums, no nulls, 1–2 contact entries. `Scripts/mock-server.py` enforces the same contract and answers violations with a 400 `OASValidation` error.
 - `PickupDateCalculator`: 2 AM cutoff, Sunday skip, holiday and observed-holiday skip, count.
@@ -435,11 +439,11 @@ Unit tests (XCTest, `PickupBarTests` target):
 - `TokenManager`: caches, refreshes near expiry, invalidate forces refetch.
 - `AppState` transitions with a `FakeUSPSAPI`.
 
-UI tests (XCUITest, `PickupBarUITests` target): one end-to-end walk of the real
+UI tests (XCUITest, `PickupUITests` target): one end-to-end walk of the real
 app - onboarding, address + Continue, the pickup form, confirmation, Settings -
 driven by `make uitest`, which starts `Scripts/mock-server.py`, launches the app
-with `PICKUPBAR_UITEST=1` (throwaway defaults suite and credential storage, so a
-run never touches the user's own) plus `PICKUPBAR_BASE_URL` pointing at the
+with `PICKUP_UITEST=1` (throwaway defaults suite and credential storage, so a
+run never touches the user's own) plus `PICKUP_BASE_URL` pointing at the
 mock, and copies the screenshots it takes out of the runner's container. It must
 be run from a normal terminal: a sandboxed shell cannot enable automation mode
 ("Timed out while enabling automation mode"). Views keep stable accessibility
@@ -447,15 +451,16 @@ identifiers (`onboarding.*`, `address.*`, `form.*`, `confirmation.*`,
 `footer.*`) for it.
 
 Manual verification: `Scripts/mock-server.py` (stdlib only) implementing the three
-endpoints; run app with `PICKUPBAR_BASE_URL=http://127.0.0.1:8787` and walk
+endpoints; run app with `PICKUP_BASE_URL=http://127.0.0.1:8787` and walk
 every screen. ATS exception for localhost only (`NSAllowsLocalNetworking`).
 
 ## 6. Repo layout
 
 ```
 project.yml            Makefile            README.md   LICENSE   .gitignore
-PickupBar/             (app sources, Resources/Assets.xcassets, Info.plist)
-PickupBarTests/
+Pickup/             (app sources, Resources/Assets.xcassets, Info.plist)
+PickupTests/
+PickupUITests/
 Scripts/make-icon.swift   Scripts/mock-server.py
 docs/superpowers/{specs,plans}
 ```

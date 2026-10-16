@@ -44,7 +44,7 @@ CARD_CX = 940            # popover centre x (right half)
 TEXT_W = 560             # text column width; ends well left of the card
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ICON = os.path.join(ROOT, "PickupBar/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512.png")
+ICON = os.path.join(ROOT, "Pickup/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512.png")
 
 
 def tool(name):
@@ -302,7 +302,7 @@ class Scenes:
     def title(self):
         icon = self.icon.resize((200, 200), Image.LANCZOS)
         shadow, pad = shadow_for((176, 176), 40, blur=18, offset=(0, 12), opacity=55)
-        name = text_layer([("PickupBar", F_TITLE, INK, 0)], 700, "center")
+        name = text_layer([("Pickup", F_TITLE, INK, 0)], 700, "center")
         tag = text_layer([("Schedule USPS carrier pickups from your Mac’s menu bar.",
                            F_SUB, SUB, 0)], 900, "center")
 
@@ -487,7 +487,7 @@ class Scenes:
 
 def storyboard(s):
     return [
-        (4, "PickupBar schedules USPS carrier pickups right from your Mac's menu bar.", s.title()),
+        (4, "Pickup schedules USPS carrier pickups right from your Mac's menu bar.", s.title()),
         (6, "Scheduling on usps.com means signing in and re-entering your address, every single time.",
          s.problem()),
         (7, "Connect once with your free USPS developer key. It's stored in your Keychain, and tokens "
@@ -508,7 +508,7 @@ def storyboard(s):
             "the menu bar.",
          s.card_scene(["08-history", "09b0-cancel-confirm"], "See, modify, or cancel scheduled pickups.",
                       None, switch_at=3.6)),
-        (5, "PickupBar is free and open source. Grab it on GitHub.", s.outro()),
+        (5, "Pickup is free and open source. Grab it on GitHub.", s.outro()),
     ]
 
 
