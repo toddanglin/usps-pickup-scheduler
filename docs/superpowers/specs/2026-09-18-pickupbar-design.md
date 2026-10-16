@@ -65,7 +65,7 @@ repo (MIT).
 | Decision | Choice |
 |---|---|
 | App name / bundle id | `Pickup` / `com.toddanglin.Pickup` |
-| Rename (1.0.1) | Formerly PickupBar (`com.toddanglin.PickupBar`). `LegacyMigration` runs once at launch: copies `settings.v1` out of PickupBar's sandbox container (read-only temporary-exception entitlement for that one plist), moves Keychain credentials from service `com.toddanglin.PickupBar` to `com.toddanglin.Pickup` and deletes the old items, then sets `migration.legacyPickupBar.done` |
+| Rename (1.0.1) | Formerly PickupBar (`com.toddanglin.PickupBar`). `LegacyMigration` runs once at launch: moves Keychain credentials from service `com.toddanglin.PickupBar` to `com.toddanglin.Pickup` and deletes the old items, then sets `migration.legacyPickupBar.done`. Settings are not migrated (that would need a sandbox file-read exception into PickupBar's container); the address is re-entered once |
 | Platform | macOS 14.0+, Swift 5 language mode on Swift 6 toolchain, SwiftUI, zero third-party deps |
 | Project generation | XcodeGen `project.yml` (xcodeproj is gitignored; `make generate`) |
 | Menu bar | `MenuBarExtra` with `.window` style; icon SF Symbol `envelope` (template); `envelope.badge` when attention is needed |

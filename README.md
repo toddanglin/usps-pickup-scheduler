@@ -12,10 +12,10 @@ using your own USPS developer credentials — no browser, no re-login.
 **Status:** v1.0 — in daily use by the author; API coverage verified against
 the USPS test environment. See [CHANGELOG.md](CHANGELOG.md).
 
-Formerly PickupBar (renamed in 1.0.1). Your saved address, defaults, pickup
-history and USPS credentials move over automatically the first time Pickup
-launches; macOS asks you to let Pickup use the credentials PickupBar stored
-in your Keychain (choose Always Allow).
+Formerly PickupBar (renamed in 1.0.1). If you built PickupBar from source,
+your USPS credentials migrate automatically the first time Pickup launches
+(macOS asks to let Pickup use the ones PickupBar stored in your Keychain);
+re-enter your address once.
 
 ## Quick look
 

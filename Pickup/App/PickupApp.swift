@@ -41,8 +41,7 @@ struct PickupApp: App {
             keychain = UITestCredentialStore(suiteName: suite)
         } else {
             keychain = KeychainStore()
-            // Before `SettingsStore` loads, so settings copied from a
-            // PickupBar install are what it reads. Runs once.
+            // Moves credentials saved by a PickupBar install. Runs once.
             LegacyMigration.runIfNeeded(keychain: keychain)
             settings = SettingsStore()
         }

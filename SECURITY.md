@@ -10,12 +10,6 @@
 - There is no telemetry, analytics, or crash reporting.
 - Your pickup address, defaults and the list of pickups you scheduled are
   stored locally in the app's sandboxed preferences.
-- The app was called PickupBar before 1.0.1. To carry existing settings
-  over, its sandbox has one read-only exception: PickupBar's own preferences
-  file (`~/Library/Containers/com.toddanglin.PickupBar/.../com.toddanglin.PickupBar.plist`),
-  read once at first launch. Credentials move from the
-  `com.toddanglin.PickupBar` Keychain service to `com.toddanglin.Pickup` and
-  the old items are deleted.
 
 ## Reporting a vulnerability
 
