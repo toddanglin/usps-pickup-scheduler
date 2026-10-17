@@ -396,6 +396,37 @@ and hides the "Last pickup" caption.
 **Mock server**: keeps POSTed pickups in memory and implements GET/PUT/DELETE
 with the behavior above (ETag = base64 SHA-256 of the GET body).
 
+### 4.8 Checking for changes (1.0.2)
+
+Verified on apis-tem.usps.com: a PUT changes the GET body and the ETag; a
+DELETE changes neither (and there is no status field), so a refresh can see a
+pickup modified on usps.com but never one cancelled there. A never-issued
+number answers 400, not 404.
+
+- `showHistory()` clears the dots left from the previous showing
+  (`flaggedDuringCurrentPresentation` is reset), then starts a background
+  check unless one is running or the last one finished under 30 s ago
+  (`lastHistoryRefresh`, not persisted). It GETs every upcoming, scheduled
+  record serially; past and cancelled records are never fetched.
+- Each result is merged into the record (date, non-zero package lines,
+  weight, location, instructions, dog, ETag). It is flagged
+  `changedExternally` when the date, the package lines (order-insensitive),
+  the weight, the location, the instructions (nil == empty) or the dog
+  differ. A record with no ETag yet (older, or never checked) is stored
+  silently unless its date differs. A record that changed in the app while
+  the check ran is skipped.
+- Failures are silent; only when every fetch failed does the header show
+  "Couldn't check with USPS" (`history.checkFailed`). While running it shows a
+  mini spinner and "Checking with USPS…" (`history.checking`).
+- The dot (8 pt red circle before the date, `history.changed.<conf>`, label
+  "Changed on usps.com") clears on the next showing, on a successful save
+  from Modify, or on Cancel. `changedExternally`, `etag`,
+  `specialInstructions` and `dogPresent` are persisted and decode as
+  absent/false from older snapshots. `schedule()` stores no ETag (POST returns
+  none); `beginModify` and `saveModification` store the GET's and the PUT's.
+- Mock server: `POST /__mock/pickups/{conf}/modify` moves the pickup a day
+  later and sets its weight to 9, standing in for a change on usps.com.
+
 ### 4.5 Views (SwiftUI)
 
 Popover window is fixed width 340 pt. Consistent 16 pt padding, `.regularMaterial`

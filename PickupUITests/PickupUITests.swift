@@ -230,13 +230,39 @@ final class PickupUITests: XCTestCase {
         XCTAssertTrue(app.buttons["confirmation.another"].exists,
                       "Schedule another pickup button missing")
 
-        // 5. History -----------------------------------------------------
+        // 5. History, after a change made on usps.com --------------------
+        // The mock moves the pickup a day later, as if changed on usps.com;
+        // opening the history checks with USPS and marks the row.
+        let changedDate = mockChangeOnUSPS(text)
+        mark("changed \(text) on the mock to \(changedDate ?? "?")")
+        XCTAssertNotNil(changedDate, "POST /__mock/pickups/\(text)/modify failed")
+
         let historyLink = app.buttons["confirmation.history"]
         require(historyLink, "confirmation history link")
         historyLink.click()
         let row = app.staticTexts["history.number.\(text)"]
         require(row, "history row \(text)")
         XCTAssertTrue(app.buttons["history.copy.\(text)"].exists, "History copy button missing")
+        let dot = app.descendants(matching: .any)["history.changed.\(text)"]
+        require(dot, "changed-on-usps.com dot", timeout: 15)
+        if let changedDate {
+            XCTAssertEqual(Self.staticText(app.staticTexts["history.date.\(text)"]),
+                           Self.shortDisplayDate(changedDate),
+                           "The row should show the date USPS now has")
+        }
+        XCTAssertFalse(app.descendants(matching: .any)["history.checking"].exists,
+                       "The checking indicator should be gone once the check finished")
+        mark("history shows the change")
+        screenshot("08b-history-changed")
+
+        // Shown again, the dot is gone (and the check is throttled).
+        app.buttons["history.back"].click()
+        require(schedule, "form after the changed history")
+        let footerHistory = app.buttons["footer.history"]
+        require(footerHistory, "footer history button")
+        footerHistory.click()
+        require(row, "history row \(text) again")
+        XCTAssertFalse(dot.exists, "The dot should clear the next time the list is shown")
         mark("history visible")
         screenshot("08-history")
         XCTAssertLessThan(popover.frame.height, 760,
@@ -572,6 +598,43 @@ final class PickupUITests: XCTestCase {
     }
 
     // MARK: - Mock server
+
+    /// `POST /__mock/pickups/{number}/modify`: the mock moves the pickup a day
+    /// later and changes its weight, as a change on usps.com would. Returns the
+    /// new "yyyy-MM-dd" date, or nil. An outbound request works from the
+    /// sandboxed runner (only listening does not).
+    private func mockChangeOnUSPS(_ number: String) -> String? {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/__mock/pickups/\(number)/modify")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 5
+        let semaphore = DispatchSemaphore(value: 0)
+        var date: String?
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if (response as? HTTPURLResponse)?.statusCode == 200,
+               let data,
+               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                date = body["pickupDate"] as? String
+            }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 6)
+        return date
+    }
+
+    /// "yyyy-MM-dd" as the history row shows it, e.g. "Tue, Oct 20".
+    private static func shortDisplayDate(_ apiDate: String) -> String {
+        let timeZone = TimeZone(identifier: "America/Chicago")!
+        let parser = DateFormatter()
+        parser.timeZone = timeZone
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let day = parser.date(from: apiDate) else { return apiDate }
+        let display = DateFormatter()
+        display.timeZone = timeZone
+        display.locale = Locale(identifier: "en_US_POSIX")
+        display.dateFormat = "EEE, MMM d"
+        return display.string(from: day)
+    }
 
     /// Error type so a broken harness fails the test loudly instead of
     /// quietly skipping it.

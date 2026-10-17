@@ -41,6 +41,14 @@ Endpoints emulated:
     PUT    /pickup/v3/carrier-pickup/{confirmationNumber}
     DELETE /pickup/v3/carrier-pickup/{confirmationNumber}
 
+Test-only endpoint (not part of the USPS API):
+    POST   /__mock/pickups/{confirmationNumber}/modify
+           Simulates a change made on usps.com: moves the stored pickup's
+           pickupDate one day later and sets estimatedWeight to 9, so the next
+           GET returns a different body and ETag. Answers 200 with the new
+           record (as GET would return it) or 404 for an unknown number. Needs
+           no token or body.
+
 Pickups created by POST are kept in memory for the GET/PUT/DELETE endpoints,
 which behave the way apis-tem.usps.com was observed to: GET returns an ETag
 header (base64 SHA-256 of the body); PUT and DELETE require it as If-Match and
@@ -272,6 +280,7 @@ def schedule_echo(body):
 PICKUPS = {}  # confirmation number -> {"pickupDate", "request", "cancelled"}
 PICKUPS_LOCK = threading.Lock()
 PICKUP_PATH = re.compile(r"^/pickup/v3/carrier-pickup/([A-Za-z0-9]+)$")
+MOCK_MODIFY_PATH = re.compile(r"^/__mock/pickups/([A-Za-z0-9]+)/modify$")
 
 
 def stored_echo(request):
@@ -446,6 +455,9 @@ class MockHandler(BaseHTTPRequestHandler):
             return self._handle_token()
         if path == "/pickup/v3/carrier-pickup":
             return self._handle_schedule_pickup()
+        match = MOCK_MODIFY_PATH.match(path)
+        if match:
+            return self._handle_mock_modify(match.group(1))
 
         self._not_found()
 
@@ -663,6 +675,19 @@ class MockHandler(BaseHTTPRequestHandler):
                 return self._send_json(400, oas_validation_error(problems))
             pickup["pickupDate"] = payload["pickupDate"]
             pickup["request"] = dict(inner, pickupDate=payload["pickupDate"])
+            body = pickup_body(number, pickup)
+        self._send_json_etag(200, body, etag_for(body))
+
+    def _handle_mock_modify(self, number):
+        """Test-only: a change made on usps.com (see the module docstring)."""
+        self._read_body()
+        with PICKUPS_LOCK:
+            pickup = PICKUPS.get(number)
+            if pickup is None:
+                return self._unknown_pickup(number)
+            day = datetime.date.fromisoformat(pickup["pickupDate"]) + datetime.timedelta(days=1)
+            pickup["pickupDate"] = day.isoformat()
+            pickup["request"] = dict(pickup["request"], pickupDate=day.isoformat(), estimatedWeight=9)
             body = pickup_body(number, pickup)
         self._send_json_etag(200, body, etag_for(body))
 

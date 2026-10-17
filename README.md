@@ -53,6 +53,8 @@ Prefer a sharper version? [Watch the 55-second explainer (MP4)](docs/explainer.m
   filled in with the pickup as USPS has it and saves it back. Cancel asks
   first, then cancels it with USPS. Cancelled pickups move to Past with a
   Cancelled badge.
+- When you open Scheduled pickups, Pickup quietly re-checks upcoming pickups
+  with USPS and marks any that changed on usps.com with a red dot.
 - Clear error messages with a Copy details button for bug reports.
 - A menu bar badge and a notification if your credentials stop working.
 - Launch at login.
@@ -253,9 +255,10 @@ orange mock-host label, for screenshots meant for the README.
   scheduled, and that history is local to this Mac. The USPS API cannot list
   pickups, so pickups made on usps.com or on another Mac never show up.
   Removing a pickup from the list does not cancel it; use Cancel pickup.
-- Pickup status. USPS reports no status, so a pickup cancelled on usps.com
-  still shows as scheduled in Pickup. Cancelling it in Pickup then marks it
-  cancelled.
+- Pickup status. Pickup detects pickups modified on usps.com, but not ones
+  cancelled there. USPS reports no status, and a cancelled pickup reads back
+  exactly as it did before (same details, same ETag), so it still shows as
+  scheduled in Pickup. Cancelling it in Pickup then marks it cancelled.
 - Pickup On Demand (timed, paid pickups) is only available on usps.com.
 - There is no business-address flag. The API has none. The optional company
   field is the only business signal sent.
