@@ -117,7 +117,10 @@ final class LiveUSPSClient: USPSAPI {
         guard (200..<300).contains(status) else { throw mapStatus(status, data: data) }
 
         do {
-            return try JSONDecoder().decode(ConfirmationResponse.self, from: data).confirmation
+            let response = try JSONDecoder().decode(ConfirmationResponse.self, from: data)
+            var confirmation = response.confirmation
+            confirmation.request = response.request
+            return confirmation
         } catch {
             throw USPSError.decoding(String(describing: error))
         }
@@ -369,8 +372,13 @@ private struct EligibilityResponse: Decodable {
 /// nested `carrierPickupRequest` echoes the date that was *requested* while the
 /// top level carries the date USPS actually *scheduled*. The nested object is
 /// only consulted for keys the top level does not have.
+///
+/// `request` is the pickup's details from `carrierPickupRequest`, read
+/// leniently (see `LenientPickupRequest`); nil when absent or unreadable.
+/// `confirmation` never carries it.
 private struct ConfirmationResponse: Decodable {
     var confirmation: PickupConfirmation
+    var request: SchedulePickupRequest?
 
     private enum CodingKeys: String, CodingKey {
         case confirmationNumber
@@ -391,6 +399,7 @@ private struct ConfirmationResponse: Decodable {
                                       debugDescription: "No confirmationNumber/pickupDate at the top level or under carrierPickupRequest."))
         }
         confirmation = PickupConfirmation(confirmationNumber: number, pickupDate: date)
+        request = (try? container.decode(LenientPickupRequest.self, forKey: .carrierPickupRequest))?.request
     }
 }
 
@@ -438,18 +447,14 @@ private struct FetchedPickupResponse: Decodable {
     var confirmation: PickupConfirmation
     var request: SchedulePickupRequest?
 
-    private enum CodingKeys: String, CodingKey {
-        case carrierPickupRequest
-    }
-
     init(from decoder: Decoder) throws {
         if var array = try? decoder.unkeyedContainer() {
             self = try array.decode(FetchedPickupResponse.self)
             return
         }
-        confirmation = try ConfirmationResponse(from: decoder).confirmation
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        request = (try? container.decode(LenientPickupRequest.self, forKey: .carrierPickupRequest))?.request
+        let response = try ConfirmationResponse(from: decoder)
+        confirmation = response.confirmation
+        request = response.request
     }
 }
 

@@ -99,6 +99,8 @@ final class PickupUITests: XCTestCase {
         require(history, "footer history button")
         history.click()
         require(app.descendants(matching: .any)["history.empty"], "empty history")
+        XCTAssertFalse(app.buttons["history.refresh"].exists,
+                       "Refresh is hidden when there is nothing upcoming to check")
         screenshot("11-history-empty")
         let back = app.buttons["history.back"]
         require(back, "history back button")
@@ -198,7 +200,14 @@ final class PickupUITests: XCTestCase {
         XCTAssertTrue(weight.exists, "Weight field missing. Tree:\n\(popoverDescription)")
         weight.click()
         weight.typeKey("a", modifierFlags: .command)
-        weight.typeText("3\n")
+        // USPS (and the mock) hand back 4 lb and upper-cased instructions;
+        // that alone must not read as a change on usps.com.
+        weight.typeText("3.5\n")
+        let instructions = app.textFields["form.instructions"]
+        XCTAssertTrue(instructions.exists, "Instructions field missing. Tree:\n\(popoverDescription)")
+        instructions.click()
+        instructions.typeKey("a", modifierFlags: .command)
+        instructions.typeText("Behind the planter")
 
         let hazmat = app.checkBoxes["form.hazmat"]
         XCTAssertTrue(hazmat.exists, "Hazmat checkbox missing. Tree:\n\(popoverDescription)")
@@ -230,28 +239,40 @@ final class PickupUITests: XCTestCase {
         XCTAssertTrue(app.buttons["confirmation.another"].exists,
                       "Schedule another pickup button missing")
 
-        // 5. History, after a change made on usps.com --------------------
-        // The mock moves the pickup a day later, as if changed on usps.com;
-        // opening the history checks with USPS and marks the row.
-        let changedDate = mockChangeOnUSPS(text)
-        mark("changed \(text) on the mock to \(changedDate ?? "?")")
-        XCTAssertNotNil(changedDate, "POST /__mock/pickups/\(text)/modify failed")
-
+        // 5. History: no dot from USPS's own normalization ---------------
+        // Opening the history checks the new pickup with USPS. The mock hands
+        // back 4 lb and upper-cased instructions, as USPS does; that is the
+        // same pickup, so no dot.
         let historyLink = app.buttons["confirmation.history"]
         require(historyLink, "confirmation history link")
         historyLink.click()
         let row = app.staticTexts["history.number.\(text)"]
         require(row, "history row \(text)")
         XCTAssertTrue(app.buttons["history.copy.\(text)"].exists, "History copy button missing")
+        let checking = app.descendants(matching: .any)["history.checking"]
+        waitForDisappearance(checking, "the first check with USPS")
         let dot = app.descendants(matching: .any)["history.changed.\(text)"]
+        XCTAssertFalse(dot.exists, "USPS's normalized copy of a new pickup is not a change")
+        let refresh = app.buttons["history.refresh"]
+        require(refresh, "history Refresh button")
+        mark("history checked, no dot")
+        screenshot("08-history")
+
+        // 5a. A change made on usps.com, caught by Refresh ----------------
+        // The mock moves the pickup a day later, as if changed on usps.com.
+        // Showing the list again would not check (the last check was under
+        // five minutes ago), so press Refresh.
+        let changedDate = mockChangeOnUSPS(text)
+        mark("changed \(text) on the mock to \(changedDate ?? "?")")
+        XCTAssertNotNil(changedDate, "POST /__mock/pickups/\(text)/modify failed")
+        refresh.click()
         require(dot, "changed-on-usps.com dot", timeout: 15)
+        waitForDisappearance(checking, "the Refresh check")
         if let changedDate {
             XCTAssertEqual(Self.staticText(app.staticTexts["history.date.\(text)"]),
                            Self.shortDisplayDate(changedDate),
                            "The row should show the date USPS now has")
         }
-        XCTAssertFalse(app.descendants(matching: .any)["history.checking"].exists,
-                       "The checking indicator should be gone once the check finished")
         mark("history shows the change")
         screenshot("08b-history-changed")
 
@@ -263,8 +284,8 @@ final class PickupUITests: XCTestCase {
         footerHistory.click()
         require(row, "history row \(text) again")
         XCTAssertFalse(dot.exists, "The dot should clear the next time the list is shown")
-        mark("history visible")
-        screenshot("08-history")
+        mark("history visible again, dot cleared")
+        screenshot("08c-history-again")
         XCTAssertLessThan(popover.frame.height, 760,
                           "The history is taller than it should be: height \(popover.frame.height)")
 
@@ -531,6 +552,22 @@ final class PickupUITests: XCTestCase {
     /// *system* menu bar too, which is enormous and can take minutes.
     private var popoverDescription: String {
         popover.exists ? popover.debugDescription : "<no popover: app.dialogs is empty>"
+    }
+
+    /// Waits for `element` to go away; on timeout fails the way `require` does.
+    @discardableResult
+    private func waitForDisappearance(_ element: XCUIElement,
+                                      _ what: String,
+                                      timeout: TimeInterval = 15,
+                                      file: StaticString = #filePath,
+                                      line: UInt = #line) -> Bool {
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                             object: element)
+        if XCTWaiter().wait(for: [gone], timeout: timeout) == .completed { return true }
+        mark("FAILED waiting for \(what) to finish")
+        screenshot("99-failure-\(what)")
+        XCTFail("\(what): \(element) still there after \(timeout)s.", file: file, line: line)
+        return false
     }
 
     /// Waits for `element`, and on timeout leaves a screenshot and the popover's

@@ -396,25 +396,59 @@ and hides the "Last pickup" caption.
 **Mock server**: keeps POSTed pickups in memory and implements GET/PUT/DELETE
 with the behavior above (ETag = base64 SHA-256 of the GET body).
 
-### 4.8 Checking for changes (1.0.2)
+### 4.8 Checking for changes (1.0.2, revised 1.0.3)
 
 Verified on apis-tem.usps.com: a PUT changes the GET body and the ETag; a
 DELETE changes neither (and there is no status field), so a refresh can see a
 pickup modified on usps.com but never one cancelled there. A never-issued
 number answers 400, not 404.
 
+USPS normalizes what it is sent (verified on apis-tem.usps.com, 1.0.3): for
+`estimatedWeight: 3.5`, `specialInstructions: "Behind the planter"`,
+`dogPresent: false`, both the POST response's `carrierPickupRequest` and the
+later GET return `estimatedWeight: 4` (an integer, rounded *up*),
+`"BEHIND THE PLANTER"`, and no `dogPresent` key at all. Names, address and
+email come back upper-cased; dates and package lines (apart from USPS's
+zero-count lines and order) come back unchanged. Comparing the app's draft
+with USPS's copy therefore reports changes that never happened, so:
+
+- **USPS's copy is what is stored.** `schedule()` builds the record from the
+  POST response's `carrierPickupRequest` (`PickupConfirmation.request`,
+  decoded leniently and never persisted), with the date from the top-level
+  `pickupDate`; it falls back to the draft only when the echo is absent or
+  unreadable. The ETag stays nil (POST returns none). `saveModification()`
+  stores the PUT response's copy the same way, with its ETag.
+- **The pickup is compared, not the bytes** (`PickupRecord.merged(with:)`):
+  date exactly; package lines as counts per type, zero counts ignored, any
+  order; weight equal when both round *up* to the same whole pound
+  (`sameWeight`: 3.5 == 4, 2 == 2, 2 != 3.2); location exactly; instructions
+  trimmed and case-insensitively, nil == "" (`sameInstructions`); a missing
+  `dogPresent` is false, and an unknown dog on an old record never differs.
+- **First contact never flags.** A record with no ETag yet (anything scheduled
+  via POST, and records from older versions) adopts USPS's copy and ETag
+  silently on its first successful fetch, whatever differs, date included.
+  Only once an ETag is held can a later fetch flag a change.
+
+Cache and refresh:
+
 - `showHistory()` clears the dots left from the previous showing
-  (`flaggedDuringCurrentPresentation` is reset), then starts a background
-  check unless one is running or the last one finished under 30 s ago
-  (`lastHistoryRefresh`, not persisted). It GETs every upcoming, scheduled
-  record serially; past and cancelled records are never fetched.
+  (`flaggedDuringCurrentPresentation` is reset), then calls
+  `refreshHistory(manual: false)`: a background check starts unless one is
+  running, there is nothing upcoming, or the last *completed* check finished
+  under 5 minutes ago (`historyRefreshInterval`, `lastHistoryRefresh`, not
+  persisted). It GETs every upcoming, scheduled record serially; past and
+  cancelled records are never fetched.
+- A **Refresh** button sits below the list, above the footnote (borderless,
+  small, `arrow.clockwise`, `history.refresh`), shown only when there is an
+  upcoming scheduled pickup. It calls `refreshHistory(manual: true)`, which
+  ignores the 5-minute window but drops presses while a check is running and
+  starts at most one check per 10 s (`manualRefreshInterval`,
+  `lastManualRefreshAttempt`, not persisted). It shows the same "Checking with
+  USPS…" indicator.
 - Each result is merged into the record (date, non-zero package lines,
-  weight, location, instructions, dog, ETag). It is flagged
-  `changedExternally` when the date, the package lines (order-insensitive),
-  the weight, the location, the instructions (nil == empty) or the dog
-  differ. A record with no ETag yet (older, or never checked) is stored
-  silently unless its date differs. A record that changed in the app while
-  the check ran is skipped.
+  weight, location, instructions, dog, ETag) and flagged `changedExternally`
+  when, by the rules above, it differs. A record that changed in the app
+  while the check ran is skipped.
 - Failures are silent; only when every fetch failed does the header show
   "Couldn't check with USPS" (`history.checkFailed`). While running it shows a
   mini spinner and "Checking with USPS…" (`history.checking`).
@@ -425,7 +459,10 @@ number answers 400, not 404.
   absent/false from older snapshots. `schedule()` stores no ETag (POST returns
   none); `beginModify` and `saveModification` store the GET's and the PUT's.
 - Mock server: `POST /__mock/pickups/{conf}/modify` moves the pickup a day
-  later and sets its weight to 9, standing in for a change on usps.com.
+  later and sets its weight to 9, standing in for a change on usps.com. Its
+  POST and GET echoes normalize the way USPS does (weight rounded up to an
+  integer, instructions, names, address and email upper-cased, `dogPresent`
+  omitted when false).
 
 ### 4.5 Views (SwiftUI)
 

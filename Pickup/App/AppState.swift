@@ -37,15 +37,20 @@ final class AppState: ObservableObject {
     @Published private(set) var historyCheckFailed = false
     /// When the last background check finished. Not persisted.
     private(set) var lastHistoryRefresh: Date?
+    /// When the Refresh button last started a check. Not persisted.
+    private(set) var lastManualRefreshAttempt: Date?
     /// Pickups the check flagged as changed while the list has been showing
     /// this time. Their dots clear the next time the list is shown.
     private(set) var flaggedDuringCurrentPresentation: Set<String> = []
     /// The running background check, if any (tests await it).
     private(set) var historyRefreshTask: Task<Void, Never>?
 
-    /// The background check is skipped when the last one finished less than
-    /// this long ago.
-    static let historyRefreshInterval: TimeInterval = 30
+    /// Showing the list skips the background check when the last one
+    /// finished less than this long ago.
+    static let historyRefreshInterval: TimeInterval = 5 * 60
+    /// The Refresh button starts at most one check this often; presses
+    /// inside the window are dropped.
+    static let manualRefreshInterval: TimeInterval = 10
 
     /// True when the error screen leads back to the history rather than to
     /// something that will try again, so its button should say "Back".
@@ -219,14 +224,15 @@ final class AppState: ObservableObject {
             let confirmation = try await withFreshTokenRetry { token in
                 try await self.api.schedulePickup(request, token: token)
             }
-            settings.lastConfirmation = confirmation
-            // USPS may move the pickup to another day, so the record keeps the
-            // confirmed date rather than the requested one.
+            settings.lastConfirmation = confirmation.withoutRequest
+            // The record is USPS's normalized copy from the response (so the
+            // first check finds nothing to flag), with the confirmed date
+            // rather than the requested one: USPS may move the pickup.
             settings.addToHistory(PickupRecord(confirmation: confirmation,
                                                request: request,
                                                createdAt: now()))
             confirmationMode = .scheduled
-            flow = .confirmed(confirmation)
+            flow = .confirmed(confirmation.withoutRequest)
         } catch {
             await fail(error)
         }
@@ -285,12 +291,17 @@ final class AppState: ObservableObject {
             // The number is the one that was edited, whatever USPS echoes.
             let confirmation = PickupConfirmation(confirmationNumber: number,
                                                   pickupDate: updated.confirmation.pickupDate)
+            // What is stored is USPS's normalized copy from the PUT response
+            // when it has one, so the next check compares like with like.
             if let existing = settings.history.first(where: { $0.confirmationNumber == number }) {
-                var record = existing.updated(confirmation: confirmation, request: request, at: now())
+                var record = existing.updated(confirmation: confirmation, request: request,
+                                              echoed: updated.request, at: now())
                 record.etag = updated.etag
                 settings.updateHistory(record)
             } else {
-                var record = PickupRecord(confirmation: confirmation, request: request, createdAt: now())
+                var echoed = confirmation
+                echoed.request = updated.request
+                var record = PickupRecord(confirmation: echoed, request: request, createdAt: now())
                 record.updatedAt = now()
                 record.etag = updated.etag
                 settings.addToHistory(record)
@@ -371,8 +382,8 @@ final class AppState: ObservableObject {
     /// mid-request) it does nothing.
     ///
     /// Each time the list is shown, the dots from the previous showing clear
-    /// and upcoming pickups are quietly checked with USPS again (see
-    /// `refreshHistoryIfDue()`).
+    /// and upcoming pickups are quietly checked with USPS again if due (see
+    /// `refreshHistory(manual:)`).
     func showHistory() {
         switch flow {
         case .form:
@@ -386,7 +397,7 @@ final class AppState: ObservableObject {
         }
         clearDotsFromEarlierPresentations()
         historyCheckFailed = false
-        refreshHistoryIfDue()
+        refreshHistory(manual: false)
     }
 
     /// A dot is shown through the presentation that set it and gone from the
@@ -401,27 +412,42 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Starts the background check of every upcoming, scheduled pickup unless
-    /// one is running, the last one finished under
-    /// `historyRefreshInterval` ago, or there is nothing to check. The list
-    /// shows the stored records meanwhile; rows update in place.
-    private func refreshHistoryIfDue() {
+    /// Starts the background check of every upcoming, scheduled pickup
+    /// (past and cancelled ones are never fetched). The list shows the stored
+    /// records meanwhile; rows update in place.
+    ///
+    /// Nothing happens while a check is running or when there is nothing to
+    /// check. Otherwise the automatic check (`manual: false`, when the list
+    /// is shown) runs only if the last one finished over
+    /// `historyRefreshInterval` ago; the Refresh button (`manual: true`)
+    /// ignores that, but starts at most one check per
+    /// `manualRefreshInterval`, dropping presses inside it.
+    func refreshHistory(manual: Bool) {
         guard historyRefreshTask == nil else { return }
-        if let last = lastHistoryRefresh, now().timeIntervalSince(last) < Self.historyRefreshInterval {
+        let date = now()
+        if manual {
+            if let last = lastManualRefreshAttempt,
+               date.timeIntervalSince(last) < Self.manualRefreshInterval { return }
+        } else if let last = lastHistoryRefresh,
+                  date.timeIntervalSince(last) < Self.historyRefreshInterval {
             return
         }
-        let targets = settings.history.filter { $0.isUpcoming(asOf: now()) }
+        let targets = settings.history.filter { $0.isUpcoming(asOf: date) }
         guard !targets.isEmpty else { return }
+        if manual {
+            lastManualRefreshAttempt = date
+            historyCheckFailed = false
+        }
         isCheckingHistory = true
         historyRefreshTask = Task { [weak self] in
-            await self?.refreshHistory(targets)
+            await self?.checkWithUSPS(targets)
         }
     }
 
     /// Fetches each pickup in turn and stores what USPS has, flagging the ones
     /// that differ. Failures are silent, except that a check where every
     /// fetch failed raises `historyCheckFailed`.
-    private func refreshHistory(_ targets: [PickupRecord]) async {
+    private func checkWithUSPS(_ targets: [PickupRecord]) async {
         var failures = 0
         for target in targets {
             let number = target.confirmationNumber

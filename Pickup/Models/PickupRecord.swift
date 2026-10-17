@@ -98,17 +98,31 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
         changedExternally = (try? container.decodeIfPresent(Bool.self, forKey: .changedExternally)) ?? false
     }
 
-    /// The record for a pickup that was just scheduled from `request`.
+    /// The record for a pickup that was just scheduled from `request`:
+    /// USPS's own copy of it (`confirmation.request`) when the response had
+    /// one, else what was sent. The date is always the confirmation's, since
+    /// USPS may move the pickup and the echoed copy keeps the requested day.
     init(confirmation: PickupConfirmation, request: SchedulePickupRequest, createdAt: Date) {
+        let copy = confirmation.request ?? request
         self.init(confirmationNumber: confirmation.confirmationNumber,
                   pickupDate: confirmation.pickupDate,
                   createdAt: createdAt,
-                  packages: request.packages,
-                  estimatedWeight: request.estimatedWeight,
-                  location: request.pickupLocation.packageLocation,
-                  addressLine: Self.addressLine(request.pickupAddress.address))
-        specialInstructions = request.pickupLocation.specialInstructions
-        dogPresent = request.pickupLocation.dogPresent
+                  packages: Self.storedLines(copy.packages, preferring: request.packages),
+                  estimatedWeight: copy.estimatedWeight,
+                  location: copy.pickupLocation.packageLocation,
+                  addressLine: Self.addressLine(copy.pickupAddress.address))
+        specialInstructions = copy.pickupLocation.specialInstructions
+        dogPresent = copy.pickupLocation.dogPresent
+    }
+
+    /// `lines` without zero counts; `preferred` (what was sent, in the
+    /// user's order) instead when it holds the same counts.
+    private static func storedLines(_ lines: [PackageLine],
+                                    preferring preferred: [PackageLine]) -> [PackageLine] {
+        if lineCounts(lines) == lineCounts(preferred) {
+            return preferred.filter { $0.packageCount > 0 }
+        }
+        return lines.filter { $0.packageCount > 0 }
     }
 
     /// "STREET, CITY ST", the one-line address the history shows.
@@ -138,17 +152,20 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
         return day >= calendar.startOfDay(for: now)
     }
 
-    /// The record after a successful PUT: USPS's date, and what was sent.
+    /// The record after a successful PUT: USPS's date, and USPS's copy of
+    /// the pickup (`echoed`, from the PUT response) or, without one, what
+    /// was sent.
     func updated(confirmation: PickupConfirmation, request: SchedulePickupRequest,
-                 at date: Date) -> PickupRecord {
+                 echoed: SchedulePickupRequest? = nil, at date: Date) -> PickupRecord {
+        let source = echoed ?? request
         var copy = self
         copy.pickupDate = confirmation.pickupDate
-        copy.packages = request.packages
-        copy.totalPackages = request.packages.reduce(0) { $0 + $1.packageCount }
-        copy.estimatedWeight = request.estimatedWeight
-        copy.location = request.pickupLocation.packageLocation
-        copy.specialInstructions = request.pickupLocation.specialInstructions
-        copy.dogPresent = request.pickupLocation.dogPresent
+        copy.packages = Self.storedLines(source.packages, preferring: request.packages)
+        copy.totalPackages = copy.packages.reduce(0) { $0 + $1.packageCount }
+        copy.estimatedWeight = source.estimatedWeight
+        copy.location = source.pickupLocation.packageLocation
+        copy.specialInstructions = source.pickupLocation.specialInstructions
+        copy.dogPresent = source.pickupLocation.dogPresent
         copy.status = .scheduled
         copy.updatedAt = date
         copy.changedExternally = false
@@ -156,16 +173,24 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
     }
 
     /// The record brought up to date with what USPS returned for it, and
-    /// whether that differs from what the app had: the date, the non-zero
-    /// package lines (in any order), the weight, the location, the
-    /// instructions (none and empty are the same) or the dog.
+    /// whether that differs from what the app had.
     ///
-    /// A record the app never saw an ETag for is only compared by date, since
-    /// what it stored may predate the fields being kept at all. Every record
-    /// with an ETag had them filled in from a request or a GET, so a nil
-    /// instruction there means none; an unknown dog is never a difference. `changedExternally`
-    /// is left alone: the caller decides what a difference means.
+    /// USPS normalizes what it is sent (seen live on apis-tem.usps.com): the
+    /// weight comes back rounded *up* to a whole pound (3.5 → 4); names,
+    /// addresses, emails and instructions upper-cased; and `dogPresent`
+    /// missing when false. So the comparison is of the pickup, not the bytes:
+    /// the date exactly; the non-zero package lines as counts per type, in
+    /// any order; the weight by `sameWeight`; the location exactly; the
+    /// instructions by `sameInstructions`; and the dog, a missing one being
+    /// no dog (an unknown dog on an old record is never a difference).
+    ///
+    /// First contact never differs: a record the app holds no ETag for (any
+    /// pickup scheduled with POST, which returns none, and records from
+    /// older versions) has never been compared with USPS's copy, so whatever
+    /// USPS has is adopted silently, date included. `changedExternally` is
+    /// left alone: the caller decides what a difference means.
     func merged(with fetched: FetchedPickup) -> (record: PickupRecord, differs: Bool) {
+        let isFirstContact = etag == nil
         var copy = self
         copy.pickupDate = fetched.confirmation.pickupDate
         copy.etag = fetched.etag
@@ -175,16 +200,13 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
             let fetchedLines = request.packages.filter { $0.packageCount > 0 }
             let linesDiffer = Self.lineCounts(packages) != Self.lineCounts(fetchedLines)
             let fetchedInstructions = request.pickupLocation.specialInstructions?.nonEmptyValue
-            let instructionsDiffer = specialInstructions?.nonEmptyValue != fetchedInstructions
             let dogDiffers = dogPresent.map { $0 != request.pickupLocation.dogPresent } ?? false
-            if etag != nil {
-                differs = differs
-                    || linesDiffer
-                    || estimatedWeight != request.estimatedWeight
-                    || location != request.pickupLocation.packageLocation
-                    || instructionsDiffer
-                    || dogDiffers
-            }
+            differs = differs
+                || linesDiffer
+                || !Self.sameWeight(estimatedWeight, request.estimatedWeight)
+                || location != request.pickupLocation.packageLocation
+                || !Self.sameInstructions(specialInstructions, fetchedInstructions)
+                || dogDiffers
             if linesDiffer {
                 copy.packages = fetchedLines
                 copy.totalPackages = fetchedLines.reduce(0) { $0 + $1.packageCount }
@@ -194,7 +216,24 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
             copy.specialInstructions = fetchedInstructions
             copy.dogPresent = request.pickupLocation.dogPresent
         }
-        return (copy, differs)
+        return (copy, differs && !isFirstContact)
+    }
+
+    /// Whether two weights are the same to USPS, which keeps whole pounds
+    /// and rounds up: equal when both round up to the same pound (3.5 and 4
+    /// are; 2 and 3.2 are not).
+    static func sameWeight(_ a: Double, _ b: Double) -> Bool {
+        a.rounded(.up) == b.rounded(.up)
+    }
+
+    /// Whether two special instructions say the same thing: compared
+    /// trimmed and ignoring case (USPS upper-cases them), with none, empty
+    /// and blank all the same.
+    static func sameInstructions(_ a: String?, _ b: String?) -> Bool {
+        func normalized(_ text: String?) -> String {
+            (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        }
+        return normalized(a) == normalized(b)
     }
 
     /// Package count per type, zero lines dropped, so order does not matter.

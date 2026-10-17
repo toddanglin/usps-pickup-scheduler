@@ -33,6 +33,9 @@ struct PickupHistoryView: View {
                 FittingScrollView(maxHeight: min(Self.listMaxHeight, PopoverMetrics.maxHeight - 120)) {
                     list
                 }
+                if settings.history.contains(where: { $0.isUpcoming(asOf: Date()) }) {
+                    refreshButton
+                }
             }
 
             Text("Only pickups scheduled from this app are listed. "
@@ -128,6 +131,24 @@ struct PickupHistoryView: View {
                 .foregroundStyle(.tertiary)
                 .accessibilityIdentifier("history.checkFailed")
         }
+    }
+
+    /// Checks the upcoming pickups with USPS now, whatever the five-minute
+    /// window says. `AppState.refreshHistory(manual:)` drops presses while a
+    /// check runs and more than one per ten seconds. Hidden when nothing is
+    /// upcoming, since there is nothing to check.
+    private var refreshButton: some View {
+        Button {
+            state.refreshHistory(manual: true)
+        } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+        .help("Check these pickups with USPS now")
+        .accessibilityIdentifier("history.refresh")
+        .padding(.horizontal, Style.outerPadding)
+        .padding(.top, 8)
     }
 
     private var emptyState: some View {

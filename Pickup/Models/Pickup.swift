@@ -92,6 +92,22 @@ struct SchedulePickupRequest: Codable, Equatable, Sendable {
 struct PickupConfirmation: Codable, Equatable, Sendable {
     var confirmationNumber: String
     var pickupDate: String
+    /// USPS's own copy of the pickup from a schedule response's
+    /// `carrierPickupRequest`, as it normalized it (weight rounded up to a
+    /// whole pound, text upper-cased, `dogPresent` omitted when false). Nil
+    /// when the response had none the app could read. Never persisted:
+    /// only the number and date are encoded.
+    var request: SchedulePickupRequest? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case confirmationNumber, pickupDate
+    }
+
+    /// Just the number and date, as the confirmation screen and
+    /// `SettingsStore.lastConfirmation` keep it.
+    var withoutRequest: PickupConfirmation {
+        PickupConfirmation(confirmationNumber: confirmationNumber, pickupDate: pickupDate)
+    }
 }
 
 struct USPSErrorBody: Codable, Sendable {

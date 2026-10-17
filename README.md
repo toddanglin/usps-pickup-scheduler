@@ -54,7 +54,9 @@ Prefer a sharper version? [Watch the 55-second explainer (MP4)](docs/explainer.m
   first, then cancels it with USPS. Cancelled pickups move to Past with a
   Cancelled badge.
 - When you open Scheduled pickups, Pickup quietly re-checks upcoming pickups
-  with USPS and marks any that changed on usps.com with a red dot.
+  with USPS and marks any that changed on usps.com with a red dot. Pickup
+  re-checks at most every five minutes on its own; a Refresh button at the
+  bottom of the list checks immediately.
 - Clear error messages with a Copy details button for bug reports.
 - A menu bar badge and a notification if your credentials stop working.
 - Launch at login.

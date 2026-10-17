@@ -296,8 +296,44 @@ final class LiveUSPSClientTests: XCTestCase {
         {"confirmationNumber":"EMC719435786","pickupDate":"2026-10-05","carrierPickupRequest":{"pickupDate":"2026-10-05","pickupAddress":{"firstName":"TEST","lastName":"USER","address":{"streetAddress":"475 LENFANT PLZ SW","city":"WASHINGTON","state":"DC","ZIPCode":"20260","ZIPPlus4":"0001"},"contact":[{"email":"TEST@EXAMPLE.COM"},{}]},"packages":[{"packageType":"PRIORITY_MAIL_EXPRESS","packageCount":0},{"packageType":"PRIORITY_MAIL","packageCount":1},{"packageType":"RETURNS","packageCount":0},{"packageType":"USPS_GROUND_ADVANTAGE","packageCount":0},{"packageType":"INTERNATIONAL","packageCount":0},{"packageType":"OTHER","packageCount":0}],"estimatedWeight":2,"pickupLocation":{"packageLocation":"FRONT_DOOR","dogPresent":false}}}
         """#)
         let confirmation = try await client.schedulePickup(sampleRequest(), token: "tok")
-        XCTAssertEqual(confirmation, PickupConfirmation(confirmationNumber: "EMC719435786",
-                                                        pickupDate: "2026-10-05"))
+        XCTAssertEqual(confirmation.confirmationNumber, "EMC719435786")
+        XCTAssertEqual(confirmation.pickupDate, "2026-10-05")
+        let echoed = try XCTUnwrap(confirmation.request, "USPS's copy of the pickup is decoded")
+        XCTAssertEqual(echoed.estimatedWeight, 2)
+        XCTAssertEqual(echoed.pickupAddress.firstName, "TEST")
+        XCTAssertEqual(echoed.pickupAddress.contact, [.email("TEST@EXAMPLE.COM")])
+        XCTAssertEqual(echoed.packages.filter { $0.packageCount > 0 },
+                       [PackageLine(packageType: .priorityMail, packageCount: 1)])
+        XCTAssertFalse(echoed.nextAvailablePickup)
+    }
+
+    func testScheduleDecodesUSPSsNormalizedCopy() async throws {
+        // Seen live on apis-tem.usps.com: 3.5 lb comes back as 4, the
+        // instructions upper-cased, and no `dogPresent` key when there is no dog.
+        respond(200, #"""
+        {"confirmationNumber":"WTC1","pickupDate":"2026-10-20","carrierPickupRequest":{"pickupDate":"2026-10-20","pickupAddress":{"firstName":"TODD","lastName":"ANGLIN","address":{"streetAddress":"4120 BINGHAM AVE","city":"SAINT LOUIS","state":"MO","ZIPCode":"63116","ZIPPlus4":"2520"},"contact":[{"email":"TODD@EXAMPLE.COM"},{}]},"packages":[{"packageType":"PRIORITY_MAIL","packageCount":2}],"estimatedWeight":4,"pickupLocation":{"packageLocation":"OTHER","specialInstructions":"BEHIND THE PLANTER"}}}
+        """#)
+        let confirmation = try await client.schedulePickup(sampleRequest(), token: "tok")
+        let echoed = try XCTUnwrap(confirmation.request)
+        XCTAssertEqual(echoed.estimatedWeight, 4)
+        XCTAssertEqual(echoed.pickupLocation,
+                       PickupLocation(packageLocation: .other, specialInstructions: "BEHIND THE PLANTER",
+                                      dogPresent: false))
+    }
+
+    func testScheduleWithoutAnEchoHasNoRequest() async throws {
+        respond(200, #"{"confirmationNumber":"WTC2","pickupDate":"2026-10-20"}"#)
+        let confirmation = try await client.schedulePickup(sampleRequest(), token: "tok")
+        XCTAssertNil(confirmation.request)
+    }
+
+    func testAConfirmationIsPersistedWithoutItsEcho() throws {
+        let echo = sampleRequest()
+        let confirmation = PickupConfirmation(confirmationNumber: "WTC3", pickupDate: "2026-10-20",
+                                              request: echo)
+        let data = try JSONEncoder().encode(confirmation)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(Set(json.keys), ["confirmationNumber", "pickupDate"])
     }
 
     func testScheduleIgnoresUnknownPackageTypesInTheEcho() async throws {

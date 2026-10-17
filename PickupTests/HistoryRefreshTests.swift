@@ -210,16 +210,75 @@ final class HistoryRefreshTests: XCTestCase {
         XCTAssertEqual(record.estimatedWeight, 7, "the fetched fields are stored too")
     }
 
-    func testARecordWithoutAnETagIsFlaggedWhenTheDateDiffers() async throws {
+    func testARecordWithoutAnETagIsNeverFlaggedEvenWhenTheDateDiffers() async throws {
+        // First contact: the app has never seen USPS's copy, so it cannot
+        // tell a change from USPS's own normalization. It adopts it silently.
         let state = makeState([record(etag: nil)])
-        fake.fetchResult = .success(fetched(date: thirdDay, etag: "etag-first"))
+        fake.fetchResult = .success(fetched(date: thirdDay, etag: "etag-first", weight: 9,
+                                            instructions: "Garage", dogPresent: false))
 
         await open(state)
 
         let record = try stored()
-        XCTAssertTrue(record.changedExternally)
-        XCTAssertEqual(record.pickupDate, thirdDay)
+        XCTAssertFalse(record.changedExternally)
+        XCTAssertEqual(record.pickupDate, thirdDay, "USPS's copy is adopted")
+        XCTAssertEqual(record.estimatedWeight, 9)
         XCTAssertEqual(record.etag, "etag-first")
+        XCTAssertEqual(state.flaggedDuringCurrentPresentation, [])
+    }
+
+    func testARealChangeAfterFirstContactFlags() async throws {
+        let state = makeState([record(etag: nil)])
+        fake.fetchResult = .success(fetched(etag: "etag-first"))
+        await open(state)
+        XCTAssertFalse(try stored().changedExternally)
+
+        currentNow = currentNow.addingTimeInterval(301)
+        fake.fetchResult = .success(fetched(date: thirdDay, etag: "etag-second"))
+        await reopen(state)
+        XCTAssertTrue(try stored().changedExternally)
+        XCTAssertEqual(try stored().pickupDate, thirdDay)
+    }
+
+    // MARK: - USPS's normalization is not a change
+
+    func testUSPSNormalizationDoesNotFlag() async throws {
+        // What the app sent, and what USPS sends back for it (seen live on
+        // the test environment): the weight rounded up to a whole pound, the
+        // instructions upper-cased, and no `dogPresent` key (decoded false).
+        var sent = record()
+        sent.estimatedWeight = 3.5
+        sent.specialInstructions = "Behind the planter"
+        sent.dogPresent = false
+        let state = makeState([sent])
+        fake.fetchResult = .success(fetched(etag: "etag-2", weight: 4,
+                                            instructions: "BEHIND THE PLANTER ", dogPresent: false))
+
+        await open(state)
+
+        let record = try stored()
+        XCTAssertFalse(record.changedExternally)
+        XCTAssertEqual(record.estimatedWeight, 4, "USPS's copy is stored")
+        XCTAssertEqual(record.specialInstructions, "BEHIND THE PLANTER ")
+        XCTAssertEqual(record.etag, "etag-2")
+    }
+
+    func testWeightsCompareByTheWholePoundUSPSRoundsUpTo() {
+        XCTAssertTrue(PickupRecord.sameWeight(3.5, 4))
+        XCTAssertTrue(PickupRecord.sameWeight(2, 2))
+        XCTAssertTrue(PickupRecord.sameWeight(0.2, 1))
+        XCTAssertFalse(PickupRecord.sameWeight(2, 3.2))
+        XCTAssertFalse(PickupRecord.sameWeight(3, 4))
+        XCTAssertFalse(PickupRecord.sameWeight(4, 4.5))
+    }
+
+    func testInstructionsCompareTrimmedAndIgnoringCase() {
+        XCTAssertTrue(PickupRecord.sameInstructions("Behind the planter", "BEHIND THE PLANTER"))
+        XCTAssertTrue(PickupRecord.sameInstructions("  gate ", "GATE"))
+        XCTAssertTrue(PickupRecord.sameInstructions(nil, ""))
+        XCTAssertTrue(PickupRecord.sameInstructions(" ", nil))
+        XCTAssertFalse(PickupRecord.sameInstructions("Gate", "Garage"))
+        XCTAssertFalse(PickupRecord.sameInstructions(nil, "Gate"))
     }
 
     func testPastAndCancelledRecordsAreNeverFetched() async throws {
@@ -280,7 +339,7 @@ final class HistoryRefreshTests: XCTestCase {
         XCTAssertEqual(try stored(), before)
 
         // The next presentation starts without it.
-        currentNow = currentNow.addingTimeInterval(31)
+        currentNow = currentNow.addingTimeInterval(301)
         fake.fetchResult = .success(fetched())
         state.closeHistory()
         state.showHistory()
@@ -297,20 +356,78 @@ final class HistoryRefreshTests: XCTestCase {
         XCTAssertTrue(state.historyCheckFailed)
     }
 
-    func testTheCheckIsThrottledForThirtySeconds() async {
+    func testTheCheckIsThrottledForFiveMinutes() async {
         let state = makeState([record()])
         await open(state)
         XCTAssertEqual(fake.fetchCallCount, 1)
         XCTAssertEqual(state.lastHistoryRefresh, Self.fixedNow)
 
-        currentNow = Self.fixedNow.addingTimeInterval(29)
+        currentNow = Self.fixedNow.addingTimeInterval(4 * 60 + 59)
         await reopen(state)
-        XCTAssertEqual(fake.fetchCallCount, 1, "within 30 s of the last check")
+        XCTAssertEqual(fake.fetchCallCount, 1, "within 5 minutes of the last check")
         XCTAssertFalse(state.isCheckingHistory)
 
-        currentNow = Self.fixedNow.addingTimeInterval(31)
+        currentNow = Self.fixedNow.addingTimeInterval(5 * 60 + 1)
         await reopen(state)
         XCTAssertEqual(fake.fetchCallCount, 2)
+    }
+
+    // MARK: - Refresh button
+
+    func testAManualRefreshIgnoresTheFiveMinuteWindow() async throws {
+        let state = makeState([record()])
+        await open(state)
+        XCTAssertEqual(fake.fetchCallCount, 1)
+
+        currentNow = Self.fixedNow.addingTimeInterval(20)
+        fake.fetchResult = .success(fetched(date: thirdDay, etag: "etag-2"))
+        state.refreshHistory(manual: true)
+        XCTAssertTrue(state.isCheckingHistory)
+        await state.historyRefreshTask?.value
+
+        XCTAssertEqual(fake.fetchCallCount, 2)
+        XCTAssertTrue(try stored().changedExternally)
+        XCTAssertEqual(state.lastManualRefreshAttempt, currentNow)
+        XCTAssertEqual(state.lastHistoryRefresh, currentNow)
+    }
+
+    func testAManualRefreshWhileOneIsRunningIsIgnored() async {
+        let state = makeState([record()])
+        state.showHistory()
+        XCTAssertNotNil(state.historyRefreshTask)
+        state.refreshHistory(manual: true)
+        XCTAssertNil(state.lastManualRefreshAttempt, "an ignored press does not count")
+        await state.historyRefreshTask?.value
+        XCTAssertEqual(fake.fetchCallCount, 1)
+    }
+
+    func testManualRefreshesAreLimitedToOnePerTenSeconds() async {
+        let state = makeState([record()])
+        await open(state)
+        XCTAssertEqual(fake.fetchCallCount, 1)
+
+        state.refreshHistory(manual: true)
+        await state.historyRefreshTask?.value
+        XCTAssertEqual(fake.fetchCallCount, 2)
+
+        currentNow = Self.fixedNow.addingTimeInterval(9)
+        state.refreshHistory(manual: true)
+        XCTAssertNil(state.historyRefreshTask, "dropped inside the 10 s window")
+        XCTAssertEqual(fake.fetchCallCount, 2)
+
+        currentNow = Self.fixedNow.addingTimeInterval(11)
+        state.refreshHistory(manual: true)
+        await state.historyRefreshTask?.value
+        XCTAssertEqual(fake.fetchCallCount, 3)
+    }
+
+    func testAManualRefreshWithNothingUpcomingDoesNothing() async {
+        let state = makeState([record("WTCPAST", date: "2026-09-10")])
+        await open(state)
+        state.refreshHistory(manual: true)
+        XCTAssertNil(state.historyRefreshTask)
+        XCTAssertFalse(state.isCheckingHistory)
+        XCTAssertEqual(fake.fetchCallCount, 0)
     }
 
     func testARecordChangedInTheAppMeanwhileIsNotOverwritten() async throws {
@@ -345,14 +462,14 @@ final class HistoryRefreshTests: XCTestCase {
         let state = makeState([record()])
         fake.fetchResult = .success(fetched(date: thirdDay, etag: "etag-2"))
         await open(state)
-        currentNow = currentNow.addingTimeInterval(60)
+        currentNow = currentNow.addingTimeInterval(301)
         fake.fetchResult = .success(fetched(date: thirdDay, etag: "etag-3", weight: 8))
         await reopen(state)
         XCTAssertTrue(try stored().changedExternally)
         XCTAssertEqual(try stored().estimatedWeight, 8)
 
         // Unchanged since: the dot goes on the presentation after.
-        currentNow = currentNow.addingTimeInterval(60)
+        currentNow = currentNow.addingTimeInterval(301)
         await reopen(state)
         XCTAssertFalse(try stored().changedExternally)
     }
@@ -402,6 +519,127 @@ final class HistoryRefreshTests: XCTestCase {
         await state.schedule()
         let record = try XCTUnwrap(settings.history.first)
         XCTAssertNil(record.etag)
+        XCTAssertFalse(record.changedExternally)
+    }
+
+    /// The POST response's `carrierPickupRequest` as the test environment
+    /// sends it back for a draft of 3.5 lb, "Behind the planter", no dog.
+    private func uspsEcho(of sent: SchedulePickupRequest) -> SchedulePickupRequest {
+        var echo = sent
+        echo.estimatedWeight = 4
+        echo.pickupLocation = PickupLocation(packageLocation: sent.pickupLocation.packageLocation,
+                                             specialInstructions: "BEHIND THE PLANTER",
+                                             dogPresent: false)
+        echo.pickupAddress.firstName = "TODD"
+        echo.pickupAddress.address.streetAddress = "4120 BINGHAM AVE"
+        echo.pickupAddress.address.city = "SAINT LOUIS"
+        echo.packages = PackageType.allCases.map { type in
+            PackageLine(packageType: type, packageCount: type == .priorityMail ? 1 : 0)
+        }
+        echo.nextAvailablePickup = false
+        return echo
+    }
+
+    private func scheduleNormalizedPickup() async throws -> AppState {
+        let state = makeState([])
+        state.draft.counts = [.priorityMail: 1]
+        state.draft.hazmatConfirmed = true
+        state.draft.weight = 3.5
+        state.draft.instructions = "Behind the planter"
+        state.draft.dogPresent = false
+        let sent = state.draft.request(address: address, contact: contact)
+        fake.scheduleResult = .success(PickupConfirmation(confirmationNumber: "WTC9",
+                                                          pickupDate: secondDay,
+                                                          request: uspsEcho(of: sent)))
+        await state.schedule()
+        XCTAssertEqual(state.flow, .confirmed(PickupConfirmation(confirmationNumber: "WTC9",
+                                                                 pickupDate: secondDay)),
+                       "the screen gets the bare confirmation")
+        return state
+    }
+
+    func testScheduleStoresUSPSsCopyFromThePOSTResponse() async throws {
+        _ = try await scheduleNormalizedPickup()
+        XCTAssertEqual(fake.lastScheduleRequest?.estimatedWeight, 3.5, "the draft is what was sent")
+        let record = try stored("WTC9")
+        XCTAssertEqual(record.estimatedWeight, 4)
+        XCTAssertEqual(record.specialInstructions, "BEHIND THE PLANTER")
+        XCTAssertEqual(record.dogPresent, false)
+        XCTAssertEqual(record.packages, [PackageLine(packageType: .priorityMail, packageCount: 1)])
+        XCTAssertEqual(record.totalPackages, 1)
+        XCTAssertEqual(record.addressLine, "4120 BINGHAM AVE, SAINT LOUIS MO")
+        XCTAssertEqual(record.pickupDate, secondDay)
+        XCTAssertNil(record.etag)
+        XCTAssertNil(settings.lastConfirmation?.request, "the echo is not kept with the confirmation")
+    }
+
+    func testScheduleKeepsTheTopLevelDateOverTheEchoedOne() async throws {
+        let state = makeState([])
+        state.draft.counts = [.priorityMail: 1]
+        state.draft.hazmatConfirmed = true
+        var echo = state.draft.request(address: address, contact: contact)
+        echo.pickupDate = "2000-01-01"
+        fake.scheduleResult = .success(PickupConfirmation(confirmationNumber: "WTC9",
+                                                          pickupDate: thirdDay, request: echo))
+        await state.schedule()
+        XCTAssertEqual(try stored("WTC9").pickupDate, thirdDay)
+    }
+
+    func testANewlyScheduledPickupGetsNoDotFromUSPSsOwnCopy() async throws {
+        let state = try await scheduleNormalizedPickup()
+        // The GET returns the same normalized copy, without `dogPresent`.
+        let sent = try XCTUnwrap(fake.lastScheduleRequest)
+        fake.fetchResult = .success(FetchedPickup(
+            confirmation: PickupConfirmation(confirmationNumber: "WTC9", pickupDate: secondDay),
+            request: uspsEcho(of: sent), etag: "etag-get"))
+
+        await open(state)
+        XCTAssertEqual(fake.fetchCallCount, 1)
+        XCTAssertFalse(try stored("WTC9").changedExternally)
+        XCTAssertEqual(try stored("WTC9").etag, "etag-get")
+
+        // Checked again later, still the same: still no dot.
+        currentNow = currentNow.addingTimeInterval(301)
+        await reopen(state)
+        XCTAssertEqual(fake.fetchCallCount, 2)
+        XCTAssertFalse(try stored("WTC9").changedExternally)
+    }
+
+    func testARecordHoldingTheDraftIsNotFlaggedByUSPSsCopy() async throws {
+        // A record stored before USPS's copy was kept, already checked once
+        // (so it has an ETag): the draft's 3.5 lb against USPS's 4 is the
+        // same pickup.
+        var old = record()
+        old.estimatedWeight = 3.5
+        old.specialInstructions = "Behind the planter"
+        old.dogPresent = false
+        let state = makeState([old])
+        fake.fetchResult = .success(fetched(etag: "etag-2", weight: 4,
+                                            instructions: "BEHIND THE PLANTER", dogPresent: false))
+        await open(state)
+        XCTAssertFalse(try stored().changedExternally)
+    }
+
+    func testSaveModificationStoresUSPSsCopyFromThePUTResponse() async throws {
+        let state = makeState([record()])
+        await open(state)
+        fake.fetchResult = .success(fetched(etag: "etag-1"))
+        await state.beginModify(try stored())
+        XCTAssertEqual(state.flow, .modifying(confirmationNumber: "WTC1"))
+        state.draft.hazmatConfirmed = true
+        state.draft.weight = 3.5
+        state.draft.instructions = "Behind the planter"
+        fake.updateResult = .success(fetched(etag: "etag-put", weight: 4,
+                                             instructions: "BEHIND THE PLANTER", dogPresent: false))
+        await state.saveModification()
+
+        let record = try stored()
+        XCTAssertEqual(fake.lastUpdate?.request.estimatedWeight, 3.5)
+        XCTAssertEqual(record.estimatedWeight, 4)
+        XCTAssertEqual(record.specialInstructions, "BEHIND THE PLANTER")
+        XCTAssertEqual(record.dogPresent, false)
+        XCTAssertEqual(record.etag, "etag-put")
+        XCTAssertNotNil(record.updatedAt)
         XCTAssertFalse(record.changedExternally)
     }
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.3
+
+- Fixed: a newly scheduled pickup could get a red dot as if changed on
+  usps.com when nothing had changed. USPS rounds the weight up to a whole
+  pound, upper-cases the instructions, names and address, and leaves out "no
+  dog"; Pickup now stores USPS's copy when it schedules or saves a pickup,
+  compares the pickup rather than the exact text, and never flags a pickup
+  the first time it checks it.
+- Scheduled pickups re-checks with USPS at most every five minutes on its
+  own. A Refresh button at the bottom of the list checks right away (at most
+  once every ten seconds).
+
 ## 1.0.2
 
 - Opening Scheduled pickups quietly re-checks upcoming pickups with USPS in

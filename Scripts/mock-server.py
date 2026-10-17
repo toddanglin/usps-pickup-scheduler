@@ -68,6 +68,7 @@ import base64
 import datetime
 import hashlib
 import json
+import math
 import os
 import threading
 import random
@@ -247,10 +248,32 @@ def oas_validation_error(problems):
     }
 
 
+def normalized_weight(weight):
+    """USPS keeps whole pounds, rounded up: 3.5 comes back as 4."""
+    if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+        return weight
+    return int(math.ceil(weight))
+
+
+def normalized_location(location):
+    """`pickupLocation` as USPS echoes it: instructions upper-cased, and no
+    `dogPresent` key at all when there is no dog."""
+    echo = {"packageLocation": location.get("packageLocation")}
+    instructions = location.get("specialInstructions")
+    if isinstance(instructions, str) and instructions:
+        echo["specialInstructions"] = instructions.upper()
+    if location.get("dogPresent"):
+        echo["dogPresent"] = True
+    return echo
+
+
 def schedule_echo(body):
-    """`carrierPickupRequest` the way the live test environment echoes it:
-    names and address upper-cased, a ZIP+4 filled in, `{}` for a cell number
-    it did not keep, and one line per package type, zero counts included."""
+    """`carrierPickupRequest` the way the live test environment echoes it
+    (in the POST response and in GET alike): names, address and email
+    upper-cased, a ZIP+4 filled in, `{}` for a cell number it did not keep,
+    one line per package type with zero counts included, the weight rounded
+    up to a whole pound, the instructions upper-cased, and `dogPresent`
+    omitted when false."""
     address = body.get("pickupAddress", {})
     postal = dict(address.get("address", {}))
     for key in ("streetAddress", "secondaryAddress", "city", "state"):
@@ -270,8 +293,8 @@ def schedule_echo(body):
         "pickupDate": body.get("pickupDate"),
         "pickupAddress": echo_address,
         "packages": [{"packageType": t, "packageCount": counts.get(t, 0)} for t in ECHO_PACKAGE_TYPES],
-        "estimatedWeight": body.get("estimatedWeight"),
-        "pickupLocation": body.get("pickupLocation"),
+        "estimatedWeight": normalized_weight(body.get("estimatedWeight")),
+        "pickupLocation": normalized_location(body.get("pickupLocation", {})),
     }
 
 
