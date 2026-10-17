@@ -104,6 +104,29 @@ struct PickupHistoryView: View {
             Text("Scheduled pickups")
                 .font(.headline)
             Spacer(minLength: 0)
+            checkStatus
+        }
+    }
+
+    /// The background check with USPS: a small spinner while it runs, and a
+    /// quiet caption only when every fetch failed. Nothing on success.
+    @ViewBuilder
+    private var checkStatus: some View {
+        if state.isCheckingHistory {
+            HStack(spacing: 4) {
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Checking with USPS…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("history.checking")
+        } else if state.historyCheckFailed {
+            Text("Couldn't check with USPS")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .accessibilityIdentifier("history.checkFailed")
         }
     }
 
@@ -175,9 +198,19 @@ private struct HistoryRow: View {
         HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
+                    if record.changedExternally {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 8, height: 8)
+                            .accessibilityElement()
+                            .accessibilityLabel("Changed on usps.com")
+                            .accessibilityIdentifier("history.changed.\(record.confirmationNumber)")
+                            .help("Changed on usps.com")
+                    }
                     Text(record.shortDisplayDate)
                         .font(.callout.weight(.medium))
                         .strikethrough(record.status == .cancelled, color: .secondary)
+                        .accessibilityIdentifier("history.date.\(record.confirmationNumber)")
                     if record.status == .cancelled {
                         Text("Cancelled")
                             .font(.caption2.weight(.semibold))

@@ -29,6 +29,24 @@ final class AppState: ObservableObject {
     /// save.
     @Published private(set) var retryFlow: FlowState = .form
 
+    /// The background check of upcoming pickups is running; the history
+    /// header shows a small spinner.
+    @Published private(set) var isCheckingHistory = false
+    /// Every fetch of the last background check failed (offline, say); the
+    /// history header says so in a quiet caption until the list is next shown.
+    @Published private(set) var historyCheckFailed = false
+    /// When the last background check finished. Not persisted.
+    private(set) var lastHistoryRefresh: Date?
+    /// Pickups the check flagged as changed while the list has been showing
+    /// this time. Their dots clear the next time the list is shown.
+    private(set) var flaggedDuringCurrentPresentation: Set<String> = []
+    /// The running background check, if any (tests await it).
+    private(set) var historyRefreshTask: Task<Void, Never>?
+
+    /// The background check is skipped when the last one finished less than
+    /// this long ago.
+    static let historyRefreshInterval: TimeInterval = 30
+
     /// True when the error screen leads back to the history rather than to
     /// something that will try again, so its button should say "Back".
     var retryReturnsToHistory: Bool { retryFlow == .history }
@@ -229,6 +247,12 @@ final class AppState: ObservableObject {
             draft = PickupDraft.forModifying(record, fetched: fetched.request,
                                              settings: settings, now: now())
             pendingEdit = PendingEdit(confirmationNumber: number, etag: fetched.etag)
+            // Keep what USPS has (and its ETag) without touching the dot: the
+            // user is about to look at it all in the form anyway.
+            if let stored = settings.history.first(where: { $0.confirmationNumber == number }) {
+                let merged = stored.merged(with: fetched).record
+                if merged != stored { settings.updateHistory(merged) }
+            }
             flow = .modifying(confirmationNumber: number)
         } catch {
             await fail(error)
@@ -262,10 +286,13 @@ final class AppState: ObservableObject {
             let confirmation = PickupConfirmation(confirmationNumber: number,
                                                   pickupDate: updated.confirmation.pickupDate)
             if let existing = settings.history.first(where: { $0.confirmationNumber == number }) {
-                settings.updateHistory(existing.updated(confirmation: confirmation, request: request, at: now()))
+                var record = existing.updated(confirmation: confirmation, request: request, at: now())
+                record.etag = updated.etag
+                settings.updateHistory(record)
             } else {
                 var record = PickupRecord(confirmation: confirmation, request: request, createdAt: now())
                 record.updatedAt = now()
+                record.etag = updated.etag
                 settings.addToHistory(record)
             }
             if settings.lastConfirmation?.confirmationNumber == number {
@@ -309,6 +336,7 @@ final class AppState: ObservableObject {
             var cancelled = settings.history.first { $0.confirmationNumber == number } ?? record
             cancelled.status = .cancelled
             cancelled.updatedAt = now()
+            cancelled.changedExternally = false
             settings.updateHistory(cancelled)
             flow = .history
         } catch {
@@ -341,6 +369,10 @@ final class AppState: ObservableObject {
 
     /// Form or confirmation screen → "Scheduled pickups". Anywhere else (say,
     /// mid-request) it does nothing.
+    ///
+    /// Each time the list is shown, the dots from the previous showing clear
+    /// and upcoming pickups are quietly checked with USPS again (see
+    /// `refreshHistoryIfDue()`).
     func showHistory() {
         switch flow {
         case .form:
@@ -350,8 +382,80 @@ final class AppState: ObservableObject {
             draft = PickupDraft.fromDefaults(settings, now: now())
             flow = .history
         default:
-            break
+            return
         }
+        clearDotsFromEarlierPresentations()
+        historyCheckFailed = false
+        refreshHistoryIfDue()
+    }
+
+    /// A dot is shown through the presentation that set it and gone from the
+    /// next. A check still running from the last presentation adds to the
+    /// fresh set, so its dots last through this one.
+    private func clearDotsFromEarlierPresentations() {
+        flaggedDuringCurrentPresentation = []
+        for record in settings.history where record.changedExternally {
+            var cleared = record
+            cleared.changedExternally = false
+            settings.updateHistory(cleared)
+        }
+    }
+
+    /// Starts the background check of every upcoming, scheduled pickup unless
+    /// one is running, the last one finished under
+    /// `historyRefreshInterval` ago, or there is nothing to check. The list
+    /// shows the stored records meanwhile; rows update in place.
+    private func refreshHistoryIfDue() {
+        guard historyRefreshTask == nil else { return }
+        if let last = lastHistoryRefresh, now().timeIntervalSince(last) < Self.historyRefreshInterval {
+            return
+        }
+        let targets = settings.history.filter { $0.isUpcoming(asOf: now()) }
+        guard !targets.isEmpty else { return }
+        isCheckingHistory = true
+        historyRefreshTask = Task { [weak self] in
+            await self?.refreshHistory(targets)
+        }
+    }
+
+    /// Fetches each pickup in turn and stores what USPS has, flagging the ones
+    /// that differ. Failures are silent, except that a check where every
+    /// fetch failed raises `historyCheckFailed`.
+    private func refreshHistory(_ targets: [PickupRecord]) async {
+        var failures = 0
+        for target in targets {
+            let number = target.confirmationNumber
+            let fetched: FetchedPickup
+            do {
+                fetched = try await withFreshTokenRetry { token in
+                    try await self.api.fetchPickup(confirmationNumber: number, token: token)
+                }
+            } catch {
+                failures += 1
+                continue
+            }
+            // Skip a record that changed meanwhile (modified, cancelled or
+            // removed in the app): what USPS said may predate that.
+            guard var current = settings.history.first(where: { $0.confirmationNumber == number })
+            else { continue }
+            var unflagged = current
+            unflagged.changedExternally = target.changedExternally
+            guard unflagged == target else { continue }
+
+            let (merged, differs) = current.merged(with: fetched)
+            current = merged
+            if differs {
+                current.changedExternally = true
+                flaggedDuringCurrentPresentation.insert(number)
+            }
+            if current != settings.history.first(where: { $0.confirmationNumber == number }) {
+                settings.updateHistory(current)
+            }
+        }
+        historyCheckFailed = failures == targets.count
+        isCheckingHistory = false
+        lastHistoryRefresh = now()
+        historyRefreshTask = nil
     }
 
     /// "Scheduled pickups" → the form (never back to a confirmation, which is

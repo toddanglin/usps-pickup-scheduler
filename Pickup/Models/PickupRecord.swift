@@ -39,12 +39,24 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
     var status: Status = .scheduled
     /// When the pickup was last changed or cancelled from the app.
     var updatedAt: Date?
+    /// Nil when unknown (a record written before these were kept).
+    var specialInstructions: String?
+    /// Nil when unknown (a record written before these were kept).
+    var dogPresent: Bool?
+    /// The ETag of the last GET or PUT the app saw. POST returns none, so a
+    /// newly scheduled pickup has none until it is first checked.
+    var etag: String?
+    /// The background check found the pickup changed on usps.com. Shown as a
+    /// red dot until the list is shown again, or the pickup is modified or
+    /// cancelled in the app.
+    var changedExternally: Bool = false
 
     var id: String { confirmationNumber }
 
     private enum CodingKeys: String, CodingKey {
         case confirmationNumber, pickupDate, createdAt, packages, totalPackages, estimatedWeight,
-             location, addressLine, status, updatedAt
+             location, addressLine, status, updatedAt, specialInstructions, dogPresent, etag,
+             changedExternally
     }
 
     init(confirmationNumber: String,
@@ -66,7 +78,8 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
     }
 
     /// `status` and `updatedAt` are absent from records written before
-    /// modify/cancel existed.
+    /// modify/cancel existed; the instructions, dog, ETag and change flag
+    /// from records written before the background check.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         confirmationNumber = try container.decode(String.self, forKey: .confirmationNumber)
@@ -79,6 +92,10 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
         addressLine = try container.decode(String.self, forKey: .addressLine)
         status = (try? container.decodeIfPresent(Status.self, forKey: .status)) ?? .scheduled
         updatedAt = try? container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        specialInstructions = try? container.decodeIfPresent(String.self, forKey: .specialInstructions)
+        dogPresent = try? container.decodeIfPresent(Bool.self, forKey: .dogPresent)
+        etag = try? container.decodeIfPresent(String.self, forKey: .etag)
+        changedExternally = (try? container.decodeIfPresent(Bool.self, forKey: .changedExternally)) ?? false
     }
 
     /// The record for a pickup that was just scheduled from `request`.
@@ -90,6 +107,8 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
                   estimatedWeight: request.estimatedWeight,
                   location: request.pickupLocation.packageLocation,
                   addressLine: Self.addressLine(request.pickupAddress.address))
+        specialInstructions = request.pickupLocation.specialInstructions
+        dogPresent = request.pickupLocation.dogPresent
     }
 
     /// "STREET, CITY ST", the one-line address the history shows.
@@ -128,9 +147,61 @@ struct PickupRecord: Codable, Equatable, Identifiable, Sendable {
         copy.totalPackages = request.packages.reduce(0) { $0 + $1.packageCount }
         copy.estimatedWeight = request.estimatedWeight
         copy.location = request.pickupLocation.packageLocation
+        copy.specialInstructions = request.pickupLocation.specialInstructions
+        copy.dogPresent = request.pickupLocation.dogPresent
         copy.status = .scheduled
         copy.updatedAt = date
+        copy.changedExternally = false
         return copy
+    }
+
+    /// The record brought up to date with what USPS returned for it, and
+    /// whether that differs from what the app had: the date, the non-zero
+    /// package lines (in any order), the weight, the location, the
+    /// instructions (none and empty are the same) or the dog.
+    ///
+    /// A record the app never saw an ETag for is only compared by date, since
+    /// what it stored may predate the fields being kept at all. Every record
+    /// with an ETag had them filled in from a request or a GET, so a nil
+    /// instruction there means none; an unknown dog is never a difference. `changedExternally`
+    /// is left alone: the caller decides what a difference means.
+    func merged(with fetched: FetchedPickup) -> (record: PickupRecord, differs: Bool) {
+        var copy = self
+        copy.pickupDate = fetched.confirmation.pickupDate
+        copy.etag = fetched.etag
+        var differs = pickupDate != fetched.confirmation.pickupDate
+
+        if let request = fetched.request {
+            let fetchedLines = request.packages.filter { $0.packageCount > 0 }
+            let linesDiffer = Self.lineCounts(packages) != Self.lineCounts(fetchedLines)
+            let fetchedInstructions = request.pickupLocation.specialInstructions?.nonEmptyValue
+            let instructionsDiffer = specialInstructions?.nonEmptyValue != fetchedInstructions
+            let dogDiffers = dogPresent.map { $0 != request.pickupLocation.dogPresent } ?? false
+            if etag != nil {
+                differs = differs
+                    || linesDiffer
+                    || estimatedWeight != request.estimatedWeight
+                    || location != request.pickupLocation.packageLocation
+                    || instructionsDiffer
+                    || dogDiffers
+            }
+            if linesDiffer {
+                copy.packages = fetchedLines
+                copy.totalPackages = fetchedLines.reduce(0) { $0 + $1.packageCount }
+            }
+            copy.estimatedWeight = request.estimatedWeight
+            copy.location = request.pickupLocation.packageLocation
+            copy.specialInstructions = fetchedInstructions
+            copy.dogPresent = request.pickupLocation.dogPresent
+        }
+        return (copy, differs)
+    }
+
+    /// Package count per type, zero lines dropped, so order does not matter.
+    private static func lineCounts(_ lines: [PackageLine]) -> [PackageType: Int] {
+        lines.reduce(into: [:]) { counts, line in
+            if line.packageCount > 0 { counts[line.packageType, default: 0] += line.packageCount }
+        }
     }
 
     /// e.g. "Saturday, October 3"; the raw string if it cannot be parsed.

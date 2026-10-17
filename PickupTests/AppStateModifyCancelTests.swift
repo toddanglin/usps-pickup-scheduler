@@ -44,7 +44,9 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     /// A configured user looking at the history, which holds `record()`.
-    private func makeStateInHistory() -> AppState {
+    /// The background check opening the history starts is let fail and
+    /// finish first, so it neither changes the record nor counts as a call.
+    private func makeStateInHistory() async -> AppState {
         try? keychain.saveCredentials(id: "key", secret: "secret")
         settings.address = address
         settings.contact = contact
@@ -54,8 +56,11 @@ final class AppStateModifyCancelTests: XCTestCase {
                              apiFactory: { _ in fake }, notifier: SpyNotifier(),
                              now: { Self.fixedNow })
         state.start()
+        fake.fetchResult = .failure(USPSError.offline)
         state.showHistory()
         XCTAssertEqual(state.flow, .history)
+        await state.historyRefreshTask?.value
+        fake.resetObservations()
         return state
     }
 
@@ -100,7 +105,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     // MARK: - beginModify
 
     func testBeginModifyPrefillsTheFormFromUSPS() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .success(fetched())
 
         await state.beginModify(record())
@@ -121,7 +126,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testBeginModifyWithAPastDateSelectsTheFirstAvailableDay() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .success(fetched(date: "2026-09-10"))
 
         await state.beginModify(record())
@@ -131,7 +136,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testBeginModifyWithAnUnofferedDateSelectsTheFirstAvailableDay() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         // A Sunday is never offered.
         fake.fetchResult = .success(fetched(date: "2026-09-20"))
         await state.beginModify(record())
@@ -139,7 +144,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testBeginModifyFallsBackToTheLocalRecord() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .success(fetched(withRequest: false))
 
         await state.beginModify(record())
@@ -154,7 +159,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testBeginModifyFailureRetriesBackToHistory() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .failure(USPSError.serviceUnavailable)
 
         await state.beginModify(record())
@@ -167,7 +172,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testBeginModifyRetriesOnceWithAFreshTokenAfter401() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResults = [.failure(USPSError.invalidCredentials), .success(fetched())]
         await state.beginModify(record())
         XCTAssertEqual(state.flow, .modifying(confirmationNumber: "WTC1"))
@@ -175,7 +180,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testBeginModifyWithBadCredentialsNeedsCredentials() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .failure(USPSError.invalidCredentials)
         await state.beginModify(record())
         XCTAssertEqual(state.flow, .needsCredentials)
@@ -184,7 +189,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     // MARK: - saveModification
 
     private func stateModifying() async -> AppState {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .success(fetched())
         await state.beginModify(record())
         XCTAssertEqual(state.flow, .modifying(confirmationNumber: "WTC1"))
@@ -320,7 +325,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     // MARK: - cancelPickup
 
     func testCancelPickupGetsFirstThenDeletesWithThatETag() async throws {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .success(fetched(etag: "etag-for-delete"))
 
         await state.cancelPickup(record())
@@ -336,7 +341,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testCancelPickupAlreadyCancelledIsIdempotent() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.cancelResult = .failure(alreadyCancelled)
 
         await state.cancelPickup(record())
@@ -346,7 +351,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testCancelPickupOtherFailureRetriesBackToHistory() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         let pastDate = USPSError.badRequest(message: "Pickup date is in the past.", details: [])
         fake.cancelResult = .failure(pastDate)
 
@@ -360,7 +365,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testCancelPickupFetchFailureNeverDeletes() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.fetchResult = .failure(USPSError.offline)
 
         await state.cancelPickup(record())
@@ -372,7 +377,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testCancelPickupRetriesTheDeleteWithAFreshTokenAfter401() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         fake.cancelResults = [.failure(USPSError.invalidCredentials), .success(())]
         await state.cancelPickup(record())
         XCTAssertEqual(fake.cancelCallCount, 2)
@@ -380,7 +385,7 @@ final class AppStateModifyCancelTests: XCTestCase {
     }
 
     func testScheduleFailureStillRetriesToTheForm() async {
-        let state = makeStateInHistory()
+        let state = await makeStateInHistory()
         state.closeHistory()
         state.draft.counts[.priorityMail] = 1
         state.draft.hazmatConfirmed = true

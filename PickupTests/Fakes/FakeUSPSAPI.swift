@@ -141,6 +141,23 @@ final class FakeUSPSAPI: USPSAPI, @unchecked Sendable {
     var lastToken: String? { lock.withLock { _lastToken } }
     var lastCredentials: (id: String, secret: String)? { lock.withLock { _lastCredentials } }
 
+    /// Forgets every call made so far (counts, last arguments, `calls`), and
+    /// restores the default fetch result. Use it after a background check the
+    /// test does not care about.
+    func resetObservations() {
+        lock.withLock {
+            _fetchCallCount = 0
+            _updateCallCount = 0
+            _cancelCallCount = 0
+            _lastFetchConfirmationNumber = nil
+            _lastUpdate = nil
+            _lastCancel = nil
+            _calls = []
+            _fetchResult = .success(FakeUSPSAPI.defaultFetched)
+            _fetchResults = []
+        }
+    }
+
     /// Convenience: a token that expires `seconds` from `now`.
     func setToken(_ accessToken: String = "fake-token", expiresIn seconds: TimeInterval,
                   from now: Date = Date(), scopes: [String] = [], apiProducts: String? = nil) {
